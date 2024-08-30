@@ -1,0 +1,4 @@
+{
+  "proxy_server": "https://api.**.ai/mj",
+  "proxy_api_secret": "sk-**"
+}

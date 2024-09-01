@@ -1,4 +1,5 @@
 # encoding:utf-8
+from re import S
 import threading
 
 import json
@@ -185,27 +186,29 @@ class Midjourney(Plugin):
             logger.debug(f"[MJ] on_handle_context. content={content}")
             msg: ChatMessage = context["msg"]
             
-            self.sessionid = context["session_id"]
-            logger.debug(f"[MJ] sessionid: {self.sessionid}")
-            self.userInfo = self.get_user_info(e_context)
-            if not isinstance(self.userInfo, dict):
-                logger.error(f"Expected self.userInfo to be a dictionary, but got {type(self.userInfo)}")
-            logger.debug(f"[MJ] userInfo: {self.userInfo}")
-            self.isgroup = self.userInfo["isgroup"]
-            logger.debug(f"[MJ] isgroup: {self.isgroup}")
 
             if ContextType.TEXT == context.type and content.startswith(self.trigger_prefix):
-                return self.handle_command(e_context)
+                
+                self.userInfo = self.get_user_info(e_context)
+                if not isinstance(self.userInfo, dict):
+                    logger.error(f"Expected self.userInfo to be a dictionary, but got {type(self.userInfo)}")
+                logger.debug(f"[MJ] userInfo: {self.userInfo}")
+                self.isgroup = self.userInfo["isgroup"]
+                
+                # 拦截非白名单黑名单群组
+                if not self.userInfo["isadmin"] and self.isgroup and not self.userInfo["iswgroup"] and self.userInfo["isbgroup"]:
+                    logger.debug("[MJ] Blocked by group whitelist/blacklist.")
+                    return
 
-            # 拦截非白名单黑名单群组
-            if not self.userInfo["isadmin"] and self.isgroup and not self.userInfo["iswgroup"] and self.userInfo["isbgroup"]:
-                logger.debug("[MJ] Blocked by group whitelist/blacklist.")
-                return
+                # 拦截黑名单用户
+                if not self.userInfo["isadmin"] and self.userInfo["isbuser"]:
+                    logger.debug("[MJ] Blocked by user blacklist.")
+                    return
+                
+                else:
+                    return self.handle_command(e_context)
 
-            # 拦截黑名单用户
-            if not self.userInfo["isadmin"] and self.userInfo["isbuser"]:
-                logger.debug("[MJ] Blocked by user blacklist.")
-                return
+
 
             if not e_context["context"]["isgroup"]:
                 state = "u:" + msg.other_user_id + ":" + msg.other_user_nickname
@@ -213,12 +216,34 @@ class Midjourney(Plugin):
                 state = "r:" + msg.other_user_id + ":" + msg.actual_user_nickname
             result = None
             try:
-                env = env_detection(self, e_context)
-                if not env:
-                    return
+
                 if content.startswith("/imagine "):
+                    
+                    #前缀开头匹配才记录用户信息以免太多不相关的用户被记录
+                    self.userInfo = self.get_user_info(e_context)
+                    if not isinstance(self.userInfo, dict):
+                        logger.error(f"Expected self.userInfo to be a dictionary, but got {type(self.userInfo)}")
+                    logger.debug(f"[MJ] userInfo: {self.userInfo}")
+                    self.isgroup = self.userInfo["isgroup"]
+                    #用户资格判断
+                    env = env_detection(self, e_context)
+                    if not env:
+                        return
+                    
                     result = self.handle_imagine(content[9:], state)
                 elif content.startswith("/up "):
+                    
+                    #前缀开头匹配才记录用户信息以免太多不相关的用户被记录
+                    self.userInfo = self.get_user_info(e_context)
+                    if not isinstance(self.userInfo, dict):
+                        logger.error(f"Expected self.userInfo to be a dictionary, but got {type(self.userInfo)}")
+                    logger.debug(f"[MJ] userInfo: {self.userInfo}")
+                    self.isgroup = self.userInfo["isgroup"]
+                    #用户资格判断
+                    env = env_detection(self, e_context)
+                    if not env:
+                        return                    
+                    
                     arr = content[4:].split()
                     try:
                         task_id = arr[0]
@@ -249,18 +274,66 @@ class Midjourney(Plugin):
                         result = self.post_json('/submit/modal',
                                             {'taskId': result.get("result"), 'state': state})
                 elif content.startswith("/img2img "):
+                    
+                    #前缀开头匹配才记录用户信息以免太多不相关的用户被记录
+                    self.userInfo = self.get_user_info(e_context)
+                    if not isinstance(self.userInfo, dict):
+                        logger.error(f"Expected self.userInfo to be a dictionary, but got {type(self.userInfo)}")
+                    logger.debug(f"[MJ] userInfo: {self.userInfo}")
+                    self.isgroup = self.userInfo["isgroup"]
+                    #用户资格判断
+                    env = env_detection(self, e_context)
+                    if not env:
+                        return                    
+                    
                     self.cmd_dict[msg.actual_user_id] = content
                     e_context["reply"] = Reply(ReplyType.TEXT, '请给我发一张图片作为垫图')
                     e_context.action = EventAction.BREAK_PASS
                     return
                 elif content == "/describe":
+
+                    #前缀开头匹配才记录用户信息以免太多不相关的用户被记录
+                    self.userInfo = self.get_user_info(e_context)
+                    if not isinstance(self.userInfo, dict):
+                        logger.error(f"Expected self.userInfo to be a dictionary, but got {type(self.userInfo)}")
+                    logger.debug(f"[MJ] userInfo: {self.userInfo}")
+                    #用户资格判断
+                    self.isgroup = self.userInfo["isgroup"]
+                    env = env_detection(self, e_context)
+                    if not env:
+                        return        
+
                     self.cmd_dict[msg.actual_user_id] = content
                     e_context["reply"] = Reply(ReplyType.TEXT, '请给我发一张图片用于图生文')
                     e_context.action = EventAction.BREAK_PASS
                     return
                 elif content.startswith("/shorten "):
+
+                    #前缀开头匹配才记录用户信息以免太多不相关的用户被记录
+                    self.userInfo = self.get_user_info(e_context)
+                    if not isinstance(self.userInfo, dict):
+                        logger.error(f"Expected self.userInfo to be a dictionary, but got {type(self.userInfo)}")
+                    logger.debug(f"[MJ] userInfo: {self.userInfo}")
+                    self.isgroup = self.userInfo["isgroup"]
+                    #用户资格判断
+                    env = env_detection(self, e_context)
+                    if not env:
+                        return        
+
                     result = self.handle_shorten(content[9:], state)
                 elif content.startswith("/seed "):
+
+                    #前缀开头匹配才记录用户信息以免太多不相关的用户被记录
+                    self.userInfo = self.get_user_info(e_context)
+                    if not isinstance(self.userInfo, dict):
+                        logger.error(f"Expected self.userInfo to be a dictionary, but got {type(self.userInfo)}")
+                    logger.debug(f"[MJ] userInfo: {self.userInfo}")
+                    self.isgroup = self.userInfo["isgroup"]
+                    #用户资格判断
+                    env = env_detection(self, e_context)
+                    if not env:
+                        return        
+
                     task_id = content[6:]
                     result = self.get_task_image_seed(task_id)
                     if result.get("code") == 1:
@@ -529,18 +602,22 @@ class Midjourney(Plugin):
             cmd = next(c for c, info in ADMIN_COMMANDS.items() if cmd in info["alias"])
             if not self.userInfo["isadmin"]:
                 return Error("[MJ] 您没有权限执行该操作，请先进行管理员认证", e_context)
+            
             # 在 handle_command 函数中添加 mj_g_info 处理逻辑
             if cmd == "mj_g_info":
                 user_infos = []
                 for uid, data in self.user_datas.items():
-                    user_nickname = data.get("user_nickname", None)
+                    # 获取用户昵称和剩余次数
+                    user_nickname = data.get("mj_data", {}).get("nickname", None)
                     limit = data.get("mj_data", {}).get("limit", "未知次数")
                     
-                    if not user_nickname:  # 如果在 `user_datas` 中没有昵称
+                    # 如果找不到昵称，尝试使用 search_friends 函数
+                    if not user_nickname:
                         user_info = search_friends(uid)
                         user_nickname = user_info.get("user_nickname", None)
 
-                    if user_nickname:  # 如果找到昵称，才添加到结果中
+                    # 只在找到昵称的情况下添加到结果中
+                    if user_nickname:
                         user_infos.append(f"{user_nickname}: {limit}次")
 
                 # 将所有用户信息拼接成一个字符串
@@ -551,10 +628,7 @@ class Midjourney(Plugin):
                 
                 return Info(info_text, e_context)
 
-            if cmd == "mj_tip":
-                self.config["tip"] = not self.config["tip"]
-                write_file(self.json_path, self.config)
-                return Info(f"[MJ] 提示功能已{'开启' if self.config['tip'] else '关闭'}", e_context)
+
 
             elif cmd == "s_limit":
                 if len(args) < 1:
@@ -987,7 +1061,8 @@ class Midjourney(Plugin):
             if uid not in self.user_datas or "mj_data" not in self.user_datas[uid] or "mj_data" not in self.user_datas[uid] or self.user_datas[uid]["mj_data"]["time"] != current_date:
                 mj_data = {
                     "limit": self.config["daily_limit"],
-                    "time": current_date
+                    "time": current_date,
+                    "nickname": uname  # 在这里添加 nickname 字段
                 }
                 if uid in self.user_datas and self.user_datas[uid]["mj_data"]:
                     self.user_datas[uid]["mj_data"] = mj_data
@@ -996,6 +1071,7 @@ class Midjourney(Plugin):
                         "mj_data": mj_data
                     }
                 write_pickle(self.user_datas_path, self.user_datas)
+
             limit = self.user_datas[uid]["mj_data"]["limit"] if "mj_data" in self.user_datas[uid] and "limit" in self.user_datas[uid]["mj_data"] and self.user_datas[uid]["mj_data"]["limit"] and self.user_datas[uid]["mj_data"]["limit"] > 0 else False
             userInfo['limit'] = limit
             userInfo['isadmin'] = uid in [user["user_id"] for user in mj_admin_users]

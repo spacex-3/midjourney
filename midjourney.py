@@ -48,7 +48,7 @@ class Midjourney(Plugin):
         super().__init__()
 
         self.trigger_prefix = "$"
-        self.help_text = self._generate_help_text()
+        # self.help_text = self._generate_help_text()
         
         try:
             #默认配置
@@ -160,17 +160,17 @@ class Midjourney(Plugin):
 
 
 
-    def _generate_help_text(self):
-        help_text = "这是一个能调用midjourney实现ai绘图的扩展能力。\n"
-        help_text += "今日剩余使用次数：{remaining_uses}\n"
-        help_text += "使用说明: \n"
-        help_text += "/imagine 根据给出的提示词绘画;\n"
-        help_text += "/img2img 根据提示词+垫图生成图;\n"
-        help_text += "/up 任务ID 序号执行动作;\n"
-        help_text += "/describe 图片转文字;\n"
-        help_text += "/shorten 提示词分析;\n"
-        help_text += "/seed 获取任务图片的seed值;\n"
-        return help_text
+    # def _generate_help_text(self):
+    #     help_text = "这是一个能调用midjourney实现ai绘图的扩展能力。\n"
+    #     help_text += "今日剩余使用次数：{remaining_uses}\n"
+    #     help_text += "使用说明: \n"
+    #     help_text += "/imagine 根据给出的提示词绘画;\n"
+    #     help_text += "/img2img 根据提示词+垫图生成图;\n"
+    #     help_text += "/up 任务ID 序号执行动作;\n"
+    #     help_text += "/describe 图片转文字;\n"
+    #     help_text += "/shorten 提示词分析;\n"
+    #     help_text += "/seed 获取任务图片的seed值;\n"
+    #     return help_text
 
 
     def on_handle_context(self, e_context: EventContext):
@@ -219,6 +219,11 @@ class Midjourney(Plugin):
 
                 if content.startswith("/imagine "):
                     
+                    # 判断是否在运行中
+                    if not self.ismj:
+                        e_context["reply"] = Reply(ReplyType.TEXT, 'MJ功能已停止，请联系管理员开启。')
+                        e_context.action = EventAction.BREAK_PASS
+                        return                   
                     #前缀开头匹配才记录用户信息以免太多不相关的用户被记录
                     self.userInfo = self.get_user_info(e_context)
                     if not isinstance(self.userInfo, dict):
@@ -232,7 +237,12 @@ class Midjourney(Plugin):
                     
                     result = self.handle_imagine(content[9:], state)
                 elif content.startswith("/up "):
-                    
+
+                    # 判断是否在运行中
+                    if not self.ismj:
+                        e_context["reply"] = Reply(ReplyType.TEXT, 'MJ功能已暂停，请联系管理员开启。')
+                        e_context.action = EventAction.BREAK_PASS
+                        return                          
                     #前缀开头匹配才记录用户信息以免太多不相关的用户被记录
                     self.userInfo = self.get_user_info(e_context)
                     if not isinstance(self.userInfo, dict):
@@ -274,7 +284,11 @@ class Midjourney(Plugin):
                         result = self.post_json('/submit/modal',
                                             {'taskId': result.get("result"), 'state': state})
                 elif content.startswith("/img2img "):
-                    
+                    # 判断是否在运行中
+                    if not self.ismj:
+                        e_context["reply"] = Reply(ReplyType.TEXT, 'MJ功能已停止，请联系管理员开启。')
+                        e_context.action = EventAction.BREAK_PASS                        
+                        return                          
                     #前缀开头匹配才记录用户信息以免太多不相关的用户被记录
                     self.userInfo = self.get_user_info(e_context)
                     if not isinstance(self.userInfo, dict):
@@ -291,7 +305,11 @@ class Midjourney(Plugin):
                     e_context.action = EventAction.BREAK_PASS
                     return
                 elif content == "/describe":
-
+                    # 判断是否在运行中
+                    if not self.ismj:
+                        e_context["reply"] = Reply(ReplyType.TEXT, 'MJ功能已停止，请联系管理员开启。')
+                        e_context.action = EventAction.BREAK_PASS                        
+                        return      
                     #前缀开头匹配才记录用户信息以免太多不相关的用户被记录
                     self.userInfo = self.get_user_info(e_context)
                     if not isinstance(self.userInfo, dict):
@@ -308,7 +326,11 @@ class Midjourney(Plugin):
                     e_context.action = EventAction.BREAK_PASS
                     return
                 elif content.startswith("/shorten "):
-
+                    # 判断是否在运行中
+                    if not self.ismj:
+                        e_context["reply"] = Reply(ReplyType.TEXT, 'MJ功能已停止，请联系管理员开启。')
+                        e_context.action = EventAction.BREAK_PASS                        
+                        return      
                     #前缀开头匹配才记录用户信息以免太多不相关的用户被记录
                     self.userInfo = self.get_user_info(e_context)
                     if not isinstance(self.userInfo, dict):
@@ -322,7 +344,11 @@ class Midjourney(Plugin):
 
                     result = self.handle_shorten(content[9:], state)
                 elif content.startswith("/seed "):
-
+                    # 判断是否在运行中
+                    if not self.ismj:
+                        e_context["reply"] = Reply(ReplyType.TEXT, 'MJ功能已停止，请联系管理员开启。')
+                        e_context.action = EventAction.BREAK_PASS                        
+                        return      
                     #前缀开头匹配才记录用户信息以免太多不相关的用户被记录
                     self.userInfo = self.get_user_info(e_context)
                     if not isinstance(self.userInfo, dict):
@@ -630,7 +656,7 @@ class Midjourney(Plugin):
 
 
 
-            elif cmd == "s_limit":
+            elif cmd == "mj_s_limit":
                 if len(args) < 1:
                     return Error("[MJ] 请输入需要设置的数量", e_context)
                 limit = int(args[0])
@@ -644,7 +670,7 @@ class Midjourney(Plugin):
                 write_file(self.json_path, self.config)
                 return Info(f"[MJ] 每日使用次数已设置为{limit}次", e_context)
 
-            elif cmd == "r_limit":
+            elif cmd == "mj_r_limit":
                 for index, item in self.user_datas.items():
                     if "mj_data" in item:  # 确保 mj_data 字段存在
                         self.user_datas[index]["mj_data"]["limit"] = self.config["daily_limit"]
@@ -664,22 +690,22 @@ class Midjourney(Plugin):
                 self.config["mj_admin_password"] = password
                 write_file(self.json_path, self.config)
                 return Info("[MJ] 管理员口令设置成功", e_context)
-            elif cmd == "stop_mj":
+            elif cmd == "mj_stop":
                 self.ismj = False
                 return Info("[MJ] 服务已暂停", e_context)
-            elif cmd == "enable_mj":
+            elif cmd == "mj_enable":
                 self.ismj = True
                 return Info("[MJ] 服务已启用", e_context)
-            elif cmd == "g_admin_list" and not self.isgroup:
+            elif cmd == "mj_g_admin_list" and not self.isgroup:
                 adminUser = self.roll["mj_admin_users"]
                 t = "\n"
                 nameList = t.join(f'{index+1}. {data["user_nickname"]}' for index, data in enumerate(adminUser))
                 return Info(f"[MJ] 管理员用户\n{nameList}", e_context)
-            elif cmd == "c_admin_list" and not self.isgroup:
+            elif cmd == "mj_c_admin_list" and not self.isgroup:
                 self.roll["mj_admin_users"] = []
                 write_pickle(self.roll_path, self.roll)
                 return Info("[MJ] 管理员用户已清空", e_context)
-            elif cmd == "s_admin_list" and not self.isgroup:
+            elif cmd == "mj_s_admin_list" and not self.isgroup:
                 user_name = args[0] if args and args[0] else ""
                 adminUsers = self.roll["mj_admin_users"]
                 buser = self.roll["mj_busers"]
@@ -713,7 +739,7 @@ class Midjourney(Plugin):
                 # 写入用户列表
                 write_pickle(self.roll_path, self.roll)
                 return Info(f"[MJ] 管理员[{userInfo['user_nickname']}]已添加到列表中", e_context)
-            elif cmd == "r_admin_list" and not self.isgroup:
+            elif cmd == "mj_r_admin_list" and not self.isgroup:
                 text = ""
                 adminUsers = self.roll["mj_admin_users"]
                 if len(args) < 1:
@@ -743,7 +769,7 @@ class Midjourney(Plugin):
                         else:
                             return Error(f"[MJ] 管理员[{user_name}]不在列表中", e_context)
                 return Info(text, e_context)
-            elif cmd == "g_wgroup" and not self.isgroup:
+            elif cmd == "mj_g_wgroup" and not self.isgroup:
                 text = ""
                 groups = self.roll["mj_groups"]
                 if len(groups) == 0:
@@ -753,11 +779,11 @@ class Midjourney(Plugin):
                     nameList = t.join(f'{index+1}. {group}' for index, group in enumerate(groups))
                     text = f"[MJ] 白名单群组\n{nameList}"
                 return Info(text, e_context)
-            elif cmd == "c_wgroup":
+            elif cmd == "mj_c_wgroup":
                 self.roll["mj_groups"] = []
                 write_pickle(self.roll_path, self.roll)
                 return Info("[MJ] 群组白名单已清空", e_context)
-            elif cmd == "s_wgroup":
+            elif cmd == "mj_s_wgroup":
                 groups = self.roll["mj_groups"]
                 bgroups = self.roll["mj_bgroups"]
                 if not self.isgroup and len(args) < 1:
@@ -779,7 +805,7 @@ class Midjourney(Plugin):
                 self.roll["mj_groups"] = groups
                 write_pickle(self.roll_path, self.roll)
                 return Info(f"[MJ] 群组[{group_name}]已添加到白名单", e_context)
-            elif cmd == "r_wgroup":
+            elif cmd == "mj_r_wgroup":
                 groups = self.roll["mj_groups"]
                 if not self.isgroup and len(args) < 1:
                     return Error("[MJ] 请输入需要移除的群组名称或序列号", e_context)
@@ -800,7 +826,7 @@ class Midjourney(Plugin):
                     return Info(f"[MJ] 群组[{group_name}]已从白名单中移除", e_context)
                 else:
                     return Error(f"[MJ] 群组[{group_name}]不在白名单中", e_context)
-            elif cmd == "g_bgroup" and not self.isgroup:
+            elif cmd == "mj_g_bgroup" and not self.isgroup:
                 text = ""
                 bgroups = self.roll["mj_bgroups"]
                 if len(bgroups) == 0:
@@ -810,11 +836,11 @@ class Midjourney(Plugin):
                     nameList = t.join(f'{index+1}. {group}' for index, group in enumerate(bgroups))
                     text = f"[MJ] 黑名单群组\n{nameList}"
                 return Info(text, e_context)
-            elif cmd == "c_bgroup":
+            elif cmd == "mj_c_bgroup":
                 self.roll["mj_bgroups"] = []
                 write_pickle(self.roll_path, self.roll)
                 return Info("[MJ] 已清空黑名单群组", e_context)
-            elif cmd == "s_bgroup":
+            elif cmd == "mj_s_bgroup":
                 groups = self.roll["mj_groups"]
                 bgroups = self.roll["mj_bgroups"]
                 if not self.isgroup and len(args) < 1:
@@ -836,7 +862,7 @@ class Midjourney(Plugin):
                 self.roll["mj_bgroups"] = bgroups
                 write_pickle(self.roll_path, self.roll)
                 return Info(f"[MJ] 群组[{group_name}]已添加到黑名单", e_context)
-            elif cmd == "r_bgroup":
+            elif cmd == "mj_r_bgroup":
                 bgroups = self.roll["mj_bgroups"]
                 if not self.isgroup and len(args) < 1:
                     return Error("[MJ] 请输入需要移除的群组名称或序列号", e_context)
@@ -857,7 +883,7 @@ class Midjourney(Plugin):
                     return Info(f"[MJ] 群组[{group_name}]已从黑名单中移除", e_context)
                 else:
                     return Error(f"[MJ] 群组[{group_name}]不在黑名单中", e_context)
-            elif cmd == "g_buser" and not self.isgroup:
+            elif cmd == "mj_g_buser" and not self.isgroup:
                 busers = self.roll["mj_busers"]
                 if len(busers) == 0:
                     return Info("[MJ] 黑名单用户：无", e_context)
@@ -865,7 +891,7 @@ class Midjourney(Plugin):
                     t = "\n"
                     nameList = t.join(f'{index+1}. {data}' for index, data in enumerate(busers))
                     return Info(f"[MJ] 黑名单用户\n{nameList}", e_context)
-            elif cmd == "g_wuser" and not self.isgroup:
+            elif cmd == "mj_g_wuser" and not self.isgroup:
                 users = self.roll["mj_users"]
                 if len(users) == 0:
                     return Info("[MJ] 白名单用户：无", e_context)
@@ -873,15 +899,15 @@ class Midjourney(Plugin):
                     t = "\n"
                     nameList = t.join(f'{index+1}. {data}' for index, data in enumerate(users))
                     return Info(f"[MJ] 白名单用户\n{nameList}", e_context)
-            elif cmd == "c_wuser":
+            elif cmd == "mj_c_wuser":
                 self.roll["mj_users"] = []
                 write_pickle(self.roll_path, self.roll)
                 return Info("[MJ] 用户白名单已清空", e_context)
-            elif cmd == "c_buser":
+            elif cmd == "mj_c_buser":
                 self.roll["mj_busers"] = []
                 write_pickle(self.roll_path, self.roll)
                 return Info("[MJ] 用户黑名单已清空", e_context)
-            elif cmd == "s_wuser":
+            elif cmd == "mj_s_wuser":
                 user_name = args[0] if args and args[0] else ""
                 users = self.roll["mj_users"]
                 busers = self.roll["mj_busers"]
@@ -910,7 +936,7 @@ class Midjourney(Plugin):
                 self.roll["mj_users"] = users
                 write_pickle(self.roll_path, self.roll)
                 return Info(f"[MJ] 用户[{user_name}]已添加到白名单", e_context)
-            elif cmd == "s_buser":
+            elif cmd == "mj_s_buser":
                 user_name = args[0] if args and args[0] else ""
                 users = self.roll["mj_users"]
                 busers = self.roll["mj_busers"]
@@ -939,7 +965,7 @@ class Midjourney(Plugin):
                 self.roll["mj_busers"] = busers
                 write_pickle(self.roll_path, self.roll)
                 return Info(f"[MJ] 用户[{user_name}]已添加到黑名单", e_context)
-            elif cmd == "r_wuser":
+            elif cmd == "mj_r_wuser":
                 text = ""
                 users = self.roll["mj_users"]
                 if len(args) < 1:
@@ -969,7 +995,7 @@ class Midjourney(Plugin):
                         else:
                             return Error(f"[MJ] 用户[{user_name}]不在白名单中", e_context)
                 return Info(text, e_context)
-            elif cmd == "r_buser":
+            elif cmd == "mj_r_buser":
                 text = ""
                 busers = self.roll["mj_busers"]
                 if len(args) < 1:

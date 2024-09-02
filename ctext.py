@@ -36,12 +36,12 @@ ADMIN_COMMANDS = {
         "alias": ["mj_g_info", "查询用户信息"],
         "desc": "查询数据库中用户昵称和对应的剩余次数",
     },
-    "stop_mj": {
-        "alias": ["stop_mj", "暂停mj服务"],
+    "mj_stop": {
+        "alias": ["mj_stop", "stop_mj", "暂停mj服务"],
         "desc": "暂停mj服务",
     },
-    "enable_mj": {
-        "alias": ["enable_mj", "启用mj服务"],
+    "mj_enable": {
+        "alias": ["mj_enable", "enable_mj", "启用mj服务"],
         "desc": "启用mj服务",
     },
     "set_mj_admin_password": {
@@ -49,103 +49,103 @@ ADMIN_COMMANDS = {
         "args": ["口令"],
         "desc": "修改管理员口令",
     },
-    "g_admin_list": {
-        "alias": ["g_admin_list", "查询管理员列表"],
+    "mj_g_admin_list": {
+        "alias": ["mj_g_admin_list", "查询管理员列表"],
         "desc": "查询管理员列表",
     },
-    "s_admin_list": {
-        "alias": ["s_admin_list", "添加管理员"],
+    "mj_s_admin_list": {
+        "alias": ["mj_s_admin_list", "添加管理员"],
         "args": ["用户ID或昵称"],
         "desc": "添加管理员",
     },
-    "r_admin_list": {
-        "alias": ["r_admin_list", "移除管理员"],
+    "mj_r_admin_list": {
+        "alias": ["mj_r_admin_list", "移除管理员"],
         "args": ["用户ID或昵称或序列号"],
         "desc": "移除管理员",
     },
-    "c_admin_list": {
-        "alias": ["c_admin_list", "清空管理员"],
+    "mj_c_admin_list": {
+        "alias": ["mj_c_admin_list", "清空管理员"],
         "desc": "清空管理员",
     },
-    "s_limit": {
-        "alias": ["s_limit", "设置每日作图数限制"],
+    "mj_s_limit": {
+        "alias": ["mj_s_limit", "设置每日作图数限制"],
         "args": ["限制值"],
         "desc": "设置每日作图数限制",
     },
-    "r_limit": {
-        "alias": ["r_limit", "清空重置用户作图数限制"],
+    "mj_r_limit": {
+        "alias": ["mj_r_limit", "清空重置用户作图数限制"],
         "desc": "清空重置用户作图数限制",
     },
-    "g_wgroup": {
-        "alias": ["g_wgroup", "查询白名单群组"],
+    "mj_g_wgroup": {
+        "alias": ["mj_g_wgroup", "查询白名单群组"],
         "desc": "查询白名单群组",
     },
-    "s_wgroup": {
-        "alias": ["s_wgroup", "添加白名单群组"],
+    "mj_s_wgroup": {
+        "alias": ["mj_s_wgroup", "添加白名单群组"],
         "args": ["群组名称"],
         "desc": "添加白名单群组",
     },
-    "r_wgroup": {
-        "alias": ["r_wgroup", "移除白名单群组"],
+    "mj_r_wgroup": {
+        "alias": ["mj_r_wgroup", "移除白名单群组"],
         "args": ["群组名称或序列号"],
         "desc": "移除白名单群组",
     },
-    "c_wgroup": {
-        "alias": ["c_wgroup", "清空白名单群组"],
+    "mj_c_wgroup": {
+        "alias": ["mj_c_wgroup", "清空白名单群组"],
         "desc": "清空白名单群组",
     },
-    "g_wuser": {
-        "alias": ["g_wuser", "查询白名单用户"],
+    "mj_g_wuser": {
+        "alias": ["mj_g_wuser", "查询白名单用户"],
         "desc": "查询白名单用户",
     },
-    "s_wuser": {
-        "alias": ["s_wuser", "添加白名单用户"],
+    "mj_s_wuser": {
+        "alias": ["mj_s_wuser", "添加白名单用户"],
         "args": ["用户ID或昵称"],
         "desc": "添加白名单用户",
     },
-    "r_wuser": {
-        "alias": ["r_wuser", "移除白名单用户"],
+    "mj_r_wuser": {
+        "alias": ["mj_r_wuser", "移除白名单用户"],
         "args": ["用户ID或昵称或序列号"],
         "desc": "移除白名单用户",
     },
-    "c_wuser": {
-        "alias": ["c_wuser", "清空白名单用户"],
+    "mj_c_wuser": {
+        "alias": ["mj_c_wuser", "清空白名单用户"],
         "desc": "清空白名单用户",
     },
-    "g_bgroup": {
-        "alias": ["g_bgroup", "查询黑名单群组"],
+    "mj_g_bgroup": {
+        "alias": ["mj_g_bgroup", "查询黑名单群组"],
         "desc": "查询黑名单群组",
     },
-    "s_bgroup": {
-        "alias": ["s_bgroup", "添加黑名单群组"],
+    "mj_s_bgroup": {
+        "alias": ["mj_s_bgroup", "添加黑名单群组"],
         "args": ["群组名称"],
         "desc": "添加黑名单群组",
     },
-    "r_bgroup": {
-        "alias": ["r_bgroup", "移除黑名单群组"],
+    "mj_r_bgroup": {
+        "alias": ["mj_r_bgroup", "移除黑名单群组"],
         "args": ["群组名称或序列号"],
         "desc": "移除黑名单群组",
     },
-    "c_bgroup": {
-        "alias": ["c_bgroup", "清空黑名单群组"],
+    "mj_c_bgroup": {
+        "alias": ["mj_c_bgroup", "清空黑名单群组"],
         "desc": "清空黑名单群组",
     },
-    "g_buser": {
-        "alias": ["g_buser", "查询黑名单用户"],
+    "mj_g_buser": {
+        "alias": ["mj_g_buser", "查询黑名单用户"],
         "desc": "查询黑名单用户",
     },
-    "s_buser": {
-        "alias": ["s_buser", "添加黑名单用户"],
+    "mj_s_buser": {
+        "alias": ["mj_s_buser", "添加黑名单用户"],
         "args": ["用户ID或昵称"],
         "desc": "添加黑名单用户",
     },
-    "r_buser": {
-        "alias": ["r_buser", "移除黑名单用户"],
+    "mj_r_buser": {
+        "alias": ["mj_r_buser", "移除黑名单用户"],
         "args": ["用户ID或昵称或序列号"],
         "desc": "移除黑名单用户",
     },
-    "c_buser": {
-        "alias": ["c_buser", "清空黑名单用户"],
+    "mj_c_buser": {
+        "alias": ["mj_c_buser", "清空黑名单用户"],
         "desc": "清空黑名单用户",
     },
 }

@@ -400,7 +400,7 @@ class Midjourney(Plugin):
                 self.add_task(result.get("result"))
                 e_context["reply"] = Reply(ReplyType.TEXT, f'✅ 您的任务已提交\n⏰ {result.get("description")} \n⏳本次生成图像后，今日还剩余 {remaining_uses - 1} 次。')
             else:
-                e_context["reply"] = Reply(ReplyType.TEXT, f'❌ 您的任务提交失败\nℹ️ {result.get("description")} \n⏳本次生成图像后，今日还剩余 {remaining_uses} 次。')
+                e_context["reply"] = Reply(ReplyType.TEXT, f'❌ 您的任务提交失败\nℹ️ {result.get("description")} \n⏳本次不扣除次数，今日还剩余 {remaining_uses} 次。')
             e_context.action = EventAction.BREAK_PASS
         except Exception as e:
             logger.warning(f"[MJ] failed to generate pic, error={e}")

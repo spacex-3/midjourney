@@ -34,6 +34,10 @@ from .ctext import *
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
+import signal
+import sys
+
+
 @plugins.register(
     name="Midjourney",
     desire_priority=-1,
@@ -95,17 +99,31 @@ class Midjourney(Plugin):
             self.cmd_dict = ExpiredDict(60 * 60)
             
             # 创建调度器
-            scheduler = BlockingScheduler()
-            scheduler.add_job(self.query_task_result, 'interval', seconds=10)
-            # 创建并启动一个新的线程来运行调度器
-            thread = threading.Thread(target=scheduler.start)
-            thread.start()
+            self.scheduler = BlockingScheduler()
+            self.scheduler.add_job(self.query_task_result, 'interval', seconds=10)
 
-            # self.config = gconf
-            # logger.info("[MJ] config={}".format(self.config))
-            
+            # 捕捉退出信号以优雅关闭调度器
+            signal.signal(signal.SIGTERM, self.graceful_shutdown)
+            signal.signal(signal.SIGINT, self.graceful_shutdown)
+
+            # 创建并启动一个新的线程来运行调度器
+            self.scheduler_thread = threading.Thread(target=self.scheduler.start)
+            self.scheduler_thread.start()
+
             # 重新写入合并后的配置文件
             write_file(self.json_path, self.config)
+            
+            
+            # # 创建调度器
+            # scheduler = BlockingScheduler()
+            # scheduler.add_job(self.query_task_result, 'interval', seconds=10)
+            # # 创建并启动一个新的线程来运行调度器
+            # thread = threading.Thread(target=scheduler.start)
+            # thread.start()
+
+            
+            # # 重新写入合并后的配置文件
+            # write_file(self.json_path, self.config)
 
             # 初始化用户数据
             self.roll = {
@@ -137,6 +155,12 @@ class Midjourney(Plugin):
             logger.warning(f"Traceback: {traceback.format_exc()}")
             raise e
 
+    # 优雅关闭调度器的函数
+    def graceful_shutdown(self, signum, frame):
+        logger.info(f"收到信号 {signum}，正在优雅关闭调度器...")
+        self.scheduler.shutdown(wait=False)  # 关闭调度器
+        logger.info("调度器已关闭")
+        sys.exit(0)  # 正常退出程序
 
     def get_help_text(self, **kwargs):
         # 获取用户的剩余使用次数
@@ -158,19 +182,6 @@ class Midjourney(Plugin):
 
         return help_text
 
-
-
-    # def _generate_help_text(self):
-    #     help_text = "这是一个能调用midjourney实现ai绘图的扩展能力。\n"
-    #     help_text += "今日剩余使用次数：{remaining_uses}\n"
-    #     help_text += "使用说明: \n"
-    #     help_text += "/imagine 根据给出的提示词绘画;\n"
-    #     help_text += "/img2img 根据提示词+垫图生成图;\n"
-    #     help_text += "/up 任务ID 序号执行动作;\n"
-    #     help_text += "/describe 图片转文字;\n"
-    #     help_text += "/shorten 提示词分析;\n"
-    #     help_text += "/seed 获取任务图片的seed值;\n"
-    #     return help_text
 
 
     def on_handle_context(self, e_context: EventContext):
@@ -400,7 +411,7 @@ class Midjourney(Plugin):
                 self.add_task(result.get("result"))
                 e_context["reply"] = Reply(ReplyType.TEXT, f'✅ 您的任务已提交\n⏰ {result.get("description")} \n⏳本次生成图像后，今日还剩余 {remaining_uses - 1} 次。')
             else:
-                e_context["reply"] = Reply(ReplyType.TEXT, f'❌ 您的任务提交失败\nℹ️ {result.get("description")} \n⏳本次不扣除次数，今日还剩余 {remaining_uses} 次。')
+                e_context["reply"] = Reply(ReplyType.TEXT, f'❌ 您的任务提交失败\nℹ️ {result.get("description")} \n⏳本次生成图像后，今日还剩余 {remaining_uses} 次。')
             e_context.action = EventAction.BREAK_PASS
         except Exception as e:
             logger.warning(f"[MJ] failed to generate pic, error={e}")

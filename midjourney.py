@@ -106,12 +106,24 @@ class Midjourney(Plugin):
             # signal.signal(signal.SIGTERM, self.graceful_shutdown)
             # signal.signal(signal.SIGINT, self.graceful_shutdown)
 
-            # # 创建并启动一个新的线程来运行调度器
-            # self.scheduler_thread = threading.Thread(target=self.scheduler.start)
-            # self.scheduler_thread.start()
+            # 创建并启动一个新的线程来运行调度器
+            self.scheduler_thread = threading.Thread(target=self.scheduler.start)
+            self.scheduler_thread.start()
 
             # 重新写入合并后的配置文件
             write_file(self.json_path, self.config)
+            
+            
+            # # 创建调度器
+            # scheduler = BlockingScheduler()
+            # scheduler.add_job(self.query_task_result, 'interval', seconds=10)
+            # # 创建并启动一个新的线程来运行调度器
+            # thread = threading.Thread(target=scheduler.start)
+            # thread.start()
+
+            
+            # # 重新写入合并后的配置文件
+            # write_file(self.json_path, self.config)
 
             # 初始化用户数据
             self.roll = {
@@ -143,16 +155,6 @@ class Midjourney(Plugin):
             logger.warning(f"Traceback: {traceback.format_exc()}")
             raise e
 
-
-    def run(self):
-        # 捕捉退出信号以优雅关闭调度器
-        signal.signal(signal.SIGTERM, self.graceful_shutdown)
-        signal.signal(signal.SIGINT, self.graceful_shutdown)
-
-        # 直接在主线程中启动调度器
-        self.scheduler.start()
-    
-    
     # # 优雅关闭调度器的函数
     # def graceful_shutdown(self, signum, frame):
     #     logger.info(f"收到信号 {signum}，正在优雅关闭调度器...")
@@ -165,7 +167,7 @@ class Midjourney(Plugin):
         remaining_uses = self.userInfo.get('limit', '未知')
 
         # 生成普通用户的帮助文本
-        help_text = f"这是一个能调用midjourney实现ai绘图的扩展能力。\n今日剩余使用次数：{remaining_uses}\n使用说明:\n/imagine 根据给出的提示词绘画;\n/img2img 根据提示词+垫图生成图;\n/up 任务ID 序号执行动作;\n/describe 图片转文字;\n/shorten 提示词分析;\n/seed 获取任务图片的seed值;\n\n注意，使用本插件请避免政治、色情、名人等相关提示词，监测到则可能存在停止使用风险。"
+        help_text = f"这是一个能调用midjourney实现ai绘图的扩展能力。\n今日剩余使用次数：{remaining_uses}\n使用说明:\n画 根据给出的提示词绘画;\n/img2img 根据提示词+垫图生成图;\n/up 任务ID 序号执行动作;\n/describe 图片转文字;\n/shorten 提示词分析;\n/seed 获取任务图片的seed值;\n\n注意，使用本插件请避免政治、色情、名人等相关提示词，监测到则可能存在停止使用风险。"
 
         # 如果是管理员，附加管理员指令的帮助信息
         if kwargs.get("admin", False) is True:
@@ -226,7 +228,7 @@ class Midjourney(Plugin):
             result = None
             try:
 
-                if content.startswith("/imagine "):
+                if content.startswith("画"):
                     
                     # 判断是否在运行中
                     if not self.ismj:
@@ -244,7 +246,7 @@ class Midjourney(Plugin):
                     if not env:
                         return
                     
-                    result = self.handle_imagine(content[9:], state)
+                    result = self.handle_imagine(content[1:], state)
                 elif content.startswith("/up "):
 
                     # 判断是否在运行中

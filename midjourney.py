@@ -102,28 +102,16 @@ class Midjourney(Plugin):
             self.scheduler = BlockingScheduler()
             self.scheduler.add_job(self.query_task_result, 'interval', seconds=10)
 
-            # 捕捉退出信号以优雅关闭调度器
-            signal.signal(signal.SIGTERM, self.graceful_shutdown)
-            signal.signal(signal.SIGINT, self.graceful_shutdown)
+            # # 捕捉退出信号以优雅关闭调度器
+            # signal.signal(signal.SIGTERM, self.graceful_shutdown)
+            # signal.signal(signal.SIGINT, self.graceful_shutdown)
 
-            # 创建并启动一个新的线程来运行调度器
-            self.scheduler_thread = threading.Thread(target=self.scheduler.start)
-            self.scheduler_thread.start()
+            # # 创建并启动一个新的线程来运行调度器
+            # self.scheduler_thread = threading.Thread(target=self.scheduler.start)
+            # self.scheduler_thread.start()
 
             # 重新写入合并后的配置文件
             write_file(self.json_path, self.config)
-            
-            
-            # # 创建调度器
-            # scheduler = BlockingScheduler()
-            # scheduler.add_job(self.query_task_result, 'interval', seconds=10)
-            # # 创建并启动一个新的线程来运行调度器
-            # thread = threading.Thread(target=scheduler.start)
-            # thread.start()
-
-            
-            # # 重新写入合并后的配置文件
-            # write_file(self.json_path, self.config)
 
             # 初始化用户数据
             self.roll = {
@@ -155,12 +143,22 @@ class Midjourney(Plugin):
             logger.warning(f"Traceback: {traceback.format_exc()}")
             raise e
 
-    # 优雅关闭调度器的函数
-    def graceful_shutdown(self, signum, frame):
-        logger.info(f"收到信号 {signum}，正在优雅关闭调度器...")
-        self.scheduler.shutdown(wait=False)  # 关闭调度器
-        logger.info("调度器已关闭")
-        sys.exit(0)  # 正常退出程序
+
+    def run(self):
+        # 捕捉退出信号以优雅关闭调度器
+        signal.signal(signal.SIGTERM, self.graceful_shutdown)
+        signal.signal(signal.SIGINT, self.graceful_shutdown)
+
+        # 直接在主线程中启动调度器
+        self.scheduler.start()
+    
+    
+    # # 优雅关闭调度器的函数
+    # def graceful_shutdown(self, signum, frame):
+    #     logger.info(f"收到信号 {signum}，正在优雅关闭调度器...")
+    #     self.scheduler.shutdown(wait=False)  # 关闭调度器
+    #     logger.info("调度器已关闭")
+    #     sys.exit(0)  # 正常退出程序
 
     def get_help_text(self, **kwargs):
         # 获取用户的剩余使用次数

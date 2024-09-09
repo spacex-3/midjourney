@@ -8,7 +8,7 @@ import requests
 import base64
 import os
 import io
-
+import logging
 import traceback
 import plugins
 
@@ -36,6 +36,7 @@ from urllib3.util.retry import Retry
 
 import signal
 import sys
+import atexit
 
 
 @plugins.register(
@@ -98,32 +99,23 @@ class Midjourney(Plugin):
             self.task_id_dict = ExpiredDict(60 * 60)
             self.cmd_dict = ExpiredDict(60 * 60)
             
+
+
             # 创建调度器
             self.scheduler = BlockingScheduler()
             self.scheduler.add_job(self.query_task_result, 'interval', seconds=10)
-
-            # # 捕捉退出信号以优雅关闭调度器
-            # signal.signal(signal.SIGTERM, self.graceful_shutdown)
-            # signal.signal(signal.SIGINT, self.graceful_shutdown)
+            logging.getLogger('apscheduler').setLevel(logging.WARNING)
 
             # 创建并启动一个新的线程来运行调度器
-            self.scheduler_thread = threading.Thread(target=self.scheduler.start)
+            self.scheduler_thread = threading.Thread(target=self.scheduler.start, daemon=True)
             self.scheduler_thread.start()
+
+            # 注册程序退出时的清理函数，确保调度器能够优雅关闭
+            atexit.register(self.graceful_shutdown)
 
             # 重新写入合并后的配置文件
             write_file(self.json_path, self.config)
             
-            
-            # # 创建调度器
-            # scheduler = BlockingScheduler()
-            # scheduler.add_job(self.query_task_result, 'interval', seconds=10)
-            # # 创建并启动一个新的线程来运行调度器
-            # thread = threading.Thread(target=scheduler.start)
-            # thread.start()
-
-            
-            # # 重新写入合并后的配置文件
-            # write_file(self.json_path, self.config)
 
             # 初始化用户数据
             self.roll = {
@@ -155,19 +147,19 @@ class Midjourney(Plugin):
             logger.warning(f"Traceback: {traceback.format_exc()}")
             raise e
 
-    # # 优雅关闭调度器的函数
-    # def graceful_shutdown(self, signum, frame):
-    #     logger.info(f"收到信号 {signum}，正在优雅关闭调度器...")
-    #     self.scheduler.shutdown(wait=False)  # 关闭调度器
-    #     logger.info("调度器已关闭")
-    #     sys.exit(0)  # 正常退出程序
+    # 优雅关闭调度器的函数
+    def graceful_shutdown(self, signum, frame):
+        logger.info(f"收到信号 {signum}，正在优雅关闭调度器...")
+        self.scheduler.shutdown(wait=False)  # 关闭调度器
+        logger.info("调度器已关闭")
+        sys.exit(0)  # 正常退出程序
 
     def get_help_text(self, **kwargs):
         # 获取用户的剩余使用次数
         remaining_uses = self.userInfo.get('limit', '未知')
 
         # 生成普通用户的帮助文本
-        help_text = f"这是一个能调用midjourney实现ai绘图的扩展能力。\n今日剩余使用次数：{remaining_uses}\n使用说明:\n画 根据给出的提示词绘画;\n/img2img 根据提示词+垫图生成图;\n/up 任务ID 序号执行动作;\n/describe 图片转文字;\n/shorten 提示词分析;\n/seed 获取任务图片的seed值;\n\n注意，使用本插件请避免政治、色情、名人等相关提示词，监测到则可能存在停止使用风险。"
+        help_text = f"这是一个能调用midjourney实现ai绘图的扩展能力。\n今日剩余使用次数：{remaining_uses}\n使用说明:\n/imagine 根据给出的提示词绘画;\n/img2img 根据提示词+垫图生成图;\n/up 任务ID 序号执行动作;\n/describe 图片转文字;\n/shorten 提示词分析;\n/seed 获取任务图片的seed值;\n\n注意，使用本插件请避免政治、色情、名人等相关提示词，监测到则可能存在停止使用风险。"
 
         # 如果是管理员，附加管理员指令的帮助信息
         if kwargs.get("admin", False) is True:
@@ -228,7 +220,7 @@ class Midjourney(Plugin):
             result = None
             try:
 
-                if content.startswith("画"):
+                if content.startswith("/imagine "):
                     
                     # 判断是否在运行中
                     if not self.ismj:
@@ -246,7 +238,7 @@ class Midjourney(Plugin):
                     if not env:
                         return
                     
-                    result = self.handle_imagine(content[1:], state)
+                    result = self.handle_imagine(content[9:], state)
                 elif content.startswith("/up "):
 
                     # 判断是否在运行中

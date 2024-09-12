@@ -13,6 +13,8 @@ from lib.itchat.content import *
 from bridge.reply import Reply, ReplyType
 from config import conf
 from common.log import logger
+from datetime import datetime
+
 
 COMMANDS = {
     "mj_help": {
@@ -256,17 +258,63 @@ def search_friends(name):
 
 
 def env_detection(self, e_context: EventContext):
-    trigger_prefix = conf().get("plugin_trigger_prefix", "$")
+    now = datetime.now()  # 获取当前时间
     reply = None
-    
-    # 如果用户是管理员或者在白名单用户列表中，则不受限制
-    if self.userInfo["isadmin"] or self.userInfo["iswuser"]:
+
+    # 获取当前的 uid_group（基于用户 ID 和群组信息的组合键）
+    uid_group = f"{self.userInfo['user_id']}_{self.userInfo['group_name'] if self.userInfo['isgroup'] else '非群聊'}"
+
+    # 1. 管理员优先，无限制
+    if self.userInfo["isadmin"]:
         return True
-    
-    # 如果用户不在白名单用户列表中且使用次数已用完
+
+    # 2. 黑名单用户，无论是否在白名单群组，直接禁止使用
+    if self.userInfo["isbuser"]:
+        logger.debug("[MJ] Blocked by user blacklist.")
+        reply = Reply(ReplyType.ERROR, "[MJ] 您在黑名单中，无法使用此功能")
+        e_context["reply"] = reply
+        e_context.action = EventAction.BREAK_PASS
+        return False
+
+    # 3. 黑名单群组，禁止白名单用户和普通用户使用
+    if self.isgroup and self.userInfo["isbgroup"]:
+        logger.debug("[MJ] Blocked by group blacklist.")
+        reply = Reply(ReplyType.ERROR, "[MJ] 您所在的群组在黑名单中，无法使用此功能")
+        e_context["reply"] = reply
+        e_context.action = EventAction.BREAK_PASS
+        return False
+
+    # 4. 白名单用户，可以无限制使用，但不能在黑名单群组中使用
+    if self.userInfo["iswuser"]:
+        if self.isgroup and self.userInfo["isbgroup"]:
+            logger.debug("[MJ] Blocked by group blacklist for whitelist user.")
+            reply = Reply(ReplyType.ERROR, "[MJ] 您所在的群组在黑名单中，无法使用此功能")
+            e_context["reply"] = reply
+            e_context.action = EventAction.BREAK_PASS
+            return False
+        # 白名单用户可以在私聊、普通群聊、白名单群聊中使用，无限制
+        return True
+
+    # 5. 普通用户，检查使用次数和过期时间
+    # 比较时将字符串转换为 datetime 对象
+    if uid_group in self.user_datas:
+        expire_time = self.user_datas[uid_group]["mj_datas"].get("expire_time", None)
+
+        # 如果 expire_time 是字符串，先将它转换为 datetime 对象
+        if isinstance(expire_time, str):
+            expire_time = datetime.strptime(expire_time, "%Y/%m/%d %H:%M:%S")
+
+        # 如果 expire_time 存在并且过期时间早于当前时间
+        if expire_time and expire_time < now:
+            reply = Reply(ReplyType.ERROR, "[MJ] 您的使用期限已到，请联系管理员更新权限")
+            e_context["reply"] = reply
+            e_context.action = EventAction.BREAK_PASS
+            return False
+
+    # 6. 检查用户的使用次数
     if not self.userInfo["limit"]:
-        # 检查是否在白名单群组中
         if self.userInfo["iswgroup"]:
+            # 在白名单群组中，用户可以无视次数限制
             return True
         else:
             reply = Reply(ReplyType.ERROR, "[MJ] 您今日的使用次数已用完，请明日再来")
@@ -275,4 +323,3 @@ def env_detection(self, e_context: EventContext):
             return False
 
     return True
-

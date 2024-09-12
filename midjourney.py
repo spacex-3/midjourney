@@ -20,7 +20,7 @@ from channel.wechat.wechat_channel import WechatChannel
 from common.expired_dict import ExpiredDict
 from common.log import logger
 from config import conf
-
+from datetime import datetime, timedelta
 from typing import Tuple
 
 from PIL import Image
@@ -34,9 +34,9 @@ from .ctext import *
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
-import signal
 import sys
 import atexit
+
 
 
 @plugins.register(
@@ -98,8 +98,6 @@ class Midjourney(Plugin):
             self.channel = WechatChannel()
             self.task_id_dict = ExpiredDict(60 * 60)
             self.cmd_dict = ExpiredDict(60 * 60)
-            
-
 
             # 创建调度器
             self.scheduler = BlockingScheduler()
@@ -115,7 +113,6 @@ class Midjourney(Plugin):
 
             # 重新写入合并后的配置文件
             write_file(self.json_path, self.config)
-            
 
             # 初始化用户数据
             self.roll = {
@@ -137,7 +134,21 @@ class Midjourney(Plugin):
             if os.path.exists(self.user_datas_path):
                 self.user_datas = read_pickle(self.user_datas_path)
                 logger.debug(f"[MJ] Loaded user_datas: {self.user_datas}")
-
+            else:
+                now = datetime.now()
+                # 初始化用户数据结构
+                self.user_datas['uid'] = {
+                    'mj_datas': {
+                        'nickname': '默认昵称',
+                        'isgroup': False,
+                        'group_name': None,
+                        'default_limit': self.config['daily_limit'],
+                        'limit': self.config['daily_limit'],
+                        'expire_time': now + timedelta(days=30),  # 30 天后过期
+                        'update_time': now  # 初始化 update_time
+                    }
+            }
+                
             self.ismj = True  # 机器人是否运行中
 
             logger.info("[MJ] inited")
@@ -148,18 +159,17 @@ class Midjourney(Plugin):
             raise e
 
     # 优雅关闭调度器的函数
-    def graceful_shutdown(self, signum, frame):
-        logger.info(f"收到信号 {signum}，正在优雅关闭调度器...")
+
+    def graceful_shutdown(self):
+        logger.info("正在优雅关闭调度器...")
         self.scheduler.shutdown(wait=False)  # 关闭调度器
         logger.info("调度器已关闭")
         sys.exit(0)  # 正常退出程序
-
+    
     def get_help_text(self, **kwargs):
-        # 获取用户的剩余使用次数
-        remaining_uses = self.userInfo.get('limit', '未知')
 
         # 生成普通用户的帮助文本
-        help_text = f"这是一个能调用midjourney实现ai绘图的扩展能力。\n今日剩余使用次数：{remaining_uses}\n使用说明:\n/imagine 根据给出的提示词绘画;\n/img2img 根据提示词+垫图生成图;\n/up 任务ID 序号执行动作;\n/describe 图片转文字;\n/shorten 提示词分析;\n/seed 获取任务图片的seed值;\n\n注意，使用本插件请避免政治、色情、名人等相关提示词，监测到则可能存在停止使用风险。"
+        help_text = f"这是一个能调用midjourney实现ai绘图的扩展能力。\n使用说明:\n/imagine 根据给出的提示词绘画;\n/img2img 根据提示词+垫图生成图;\n/up 任务ID 序号执行动作;\n/describe 图片转文字;\n/shorten 提示词分析;\n/seed 获取任务图片的seed值;\n\n注意，使用本插件请避免政治、色情、名人等相关提示词，监测到则可能存在停止使用风险。"
 
         # 如果是管理员，附加管理员指令的帮助信息
         if kwargs.get("admin", False) is True:
@@ -233,6 +243,7 @@ class Midjourney(Plugin):
                         logger.error(f"Expected self.userInfo to be a dictionary, but got {type(self.userInfo)}")
                     logger.debug(f"[MJ] userInfo: {self.userInfo}")
                     self.isgroup = self.userInfo["isgroup"]
+
                     #用户资格判断
                     env = env_detection(self, e_context)
                     if not env:
@@ -252,6 +263,7 @@ class Midjourney(Plugin):
                         logger.error(f"Expected self.userInfo to be a dictionary, but got {type(self.userInfo)}")
                     logger.debug(f"[MJ] userInfo: {self.userInfo}")
                     self.isgroup = self.userInfo["isgroup"]
+
                     #用户资格判断
                     env = env_detection(self, e_context)
                     if not env:
@@ -298,6 +310,7 @@ class Midjourney(Plugin):
                         logger.error(f"Expected self.userInfo to be a dictionary, but got {type(self.userInfo)}")
                     logger.debug(f"[MJ] userInfo: {self.userInfo}")
                     self.isgroup = self.userInfo["isgroup"]
+
                     #用户资格判断
                     env = env_detection(self, e_context)
                     if not env:
@@ -318,8 +331,9 @@ class Midjourney(Plugin):
                     if not isinstance(self.userInfo, dict):
                         logger.error(f"Expected self.userInfo to be a dictionary, but got {type(self.userInfo)}")
                     logger.debug(f"[MJ] userInfo: {self.userInfo}")
-                    #用户资格判断
                     self.isgroup = self.userInfo["isgroup"]
+
+                    #用户资格判断
                     env = env_detection(self, e_context)
                     if not env:
                         return        
@@ -340,6 +354,7 @@ class Midjourney(Plugin):
                         logger.error(f"Expected self.userInfo to be a dictionary, but got {type(self.userInfo)}")
                     logger.debug(f"[MJ] userInfo: {self.userInfo}")
                     self.isgroup = self.userInfo["isgroup"]
+
                     #用户资格判断
                     env = env_detection(self, e_context)
                     if not env:
@@ -358,6 +373,7 @@ class Midjourney(Plugin):
                         logger.error(f"Expected self.userInfo to be a dictionary, but got {type(self.userInfo)}")
                     logger.debug(f"[MJ] userInfo: {self.userInfo}")
                     self.isgroup = self.userInfo["isgroup"]
+                    
                     #用户资格判断
                     env = env_detection(self, e_context)
                     if not env:
@@ -391,19 +407,22 @@ class Midjourney(Plugin):
                 logger.exception("[MJ] handle failed: %s" % e)
                 result = {'code': -9, 'description': '服务异常, 请稍后再试'}
             code = result.get("code")
-            # 获取用户当前剩余次数
-            remaining_uses = self.user_datas[self.userInfo['user_id']]["mj_data"]["limit"]
+            # 获取用户当前剩余次数和有效期
+            uid_group = f"{self.userInfo['user_id']}_{self.userInfo['group_name'] if self.userInfo['isgroup'] else '非群聊'}"
+            remaining_uses = self.user_datas[uid_group]["mj_datas"]["limit"]
+            user_expire_time = self.user_datas[uid_group]["mj_datas"]["expire_time"]
+
             if code == 1:
                 task_id = result.get("result")
                 self.add_task(task_id)
 
                 e_context["reply"] = Reply(ReplyType.TEXT,
-                                        f'✅ 您的任务已提交\n🚀 正在快速处理中，请稍后\n📨 任务ID: {task_id} \n⏳本次生成图像后，今日还剩余 {remaining_uses - 1} 次。')
+                                        f'✅ 您的任务已提交\n🚀 正在快速处理中，请稍后\n📨 任务ID: {task_id} \n⏳本次生成图像后，有效期内还剩余 {remaining_uses - 1} 次\n⏰有效期: {user_expire_time} ')
             elif code == 22:
                 self.add_task(result.get("result"))
-                e_context["reply"] = Reply(ReplyType.TEXT, f'✅ 您的任务已提交\n⏰ {result.get("description")} \n⏳本次生成图像后，今日还剩余 {remaining_uses - 1} 次。')
+                e_context["reply"] = Reply(ReplyType.TEXT, f'✅ 您的任务已提交\n⏰ {result.get("description")} \n⏳本次生成图像后，有效期内还剩余 {remaining_uses - 1} 次\n⏰有效期: {user_expire_time} ')
             else:
-                e_context["reply"] = Reply(ReplyType.TEXT, f'❌ 您的任务提交失败\nℹ️ {result.get("description")} \n⏳本次生成图像后，今日还剩余 {remaining_uses} 次。')
+                e_context["reply"] = Reply(ReplyType.TEXT, f'❌ 您的任务提交失败\nℹ️ {result.get("description")} \n⏳本次不扣除次数，有效期内还剩余 {remaining_uses} 次\n⏰有效期: {user_expire_time} ')
             e_context.action = EventAction.BREAK_PASS
         except Exception as e:
             logger.warning(f"[MJ] failed to generate pic, error={e}")
@@ -484,9 +503,11 @@ class Midjourney(Plugin):
                     url_reply = Reply(ReplyType.IMAGE_URL, task['imageUrl'])
                     self.channel.send(url_reply, context)
                     self.channel.send(reply, context)
-                    if self.user_datas[userInfo['user_id']]["mj_data"]["limit"] > 0:
-                        self.user_datas[userInfo['user_id']]["mj_data"]["limit"] -= 1
-                        write_pickle(self.user_datas_path, self.user_datas)
+                    # 成功生成图像后调用
+                    # uid_group = f"{self.userInfo['user_id']}_{self.userInfo['group_name'] if self.userInfo['isgroup'] else '非群聊'}"
+                    self.update_limit(self.userInfo['user_id'], self.userInfo['group_name'], 1)
+
+                    write_pickle(self.user_datas_path, self.user_datas)
                 else:
                     reply = Reply(ReplyType.TEXT,
                                   ('✅ 任务已完成\n📨 任务ID: %s\n✨ %s\n\n' + self.get_buttons(
@@ -496,13 +517,15 @@ class Midjourney(Plugin):
                     url_reply = Reply(ReplyType.IMAGE, image_storage)
                     self.channel.send(url_reply, context)
                     self.channel.send(reply, context)
-                    if self.user_datas[userInfo['user_id']]["mj_data"]["limit"] > 0:
-                        self.user_datas[userInfo['user_id']]["mj_data"]["limit"] -= 1
-                        write_pickle(self.user_datas_path, self.user_datas)
+                    # 成功生成图像后调用
+                    # uid_group = f"{self.userInfo['user_id']}_{self.userInfo['group_name'] if self.userInfo['isgroup'] else '非群聊'}"
+                    self.update_limit(self.userInfo['user_id'], self.userInfo['group_name'], 1)
+
+                    write_pickle(self.user_datas_path, self.user_datas)
             elif status == 'FAILURE':
                 self.task_id_dict.pop(task_id)
                 reply = Reply(ReplyType.TEXT,
-                              reply_prefix + '❌ 任务执行失败\n✨ %s\n📨 任务ID: %s\n📒 失败原因: %s' % (
+                              reply_prefix + '❌ 任务执行失败，请重试\n✨ %s\n📨 任务ID: %s\n📒 失败原因: %s' % (
                               description, task_id, task['failReason']))
                 self.channel.send(reply, context)
 
@@ -634,51 +657,90 @@ class Midjourney(Plugin):
             
             # 在 handle_command 函数中添加 mj_g_info 处理逻辑
             if cmd == "mj_g_info":
+                # 直接在这里加载最新的用户数据
+                if os.path.exists(self.user_datas_path):
+                    with open(self.user_datas_path, "rb") as f:
+                        self.user_datas = pickle.load(f)
+                else:
+                    self.user_datas = {}  
                 user_infos = []
-                for uid, data in self.user_datas.items():
-                    # 获取用户昵称和剩余次数
-                    user_nickname = data.get("mj_data", {}).get("nickname", None)
-                    limit = data.get("mj_data", {}).get("limit", "未知次数")
-                    
-                    # 如果找不到昵称，尝试使用 search_friends 函数
-                    if not user_nickname:
-                        user_info = search_friends(uid)
-                        user_nickname = user_info.get("user_nickname", None)
+                for uid_group, data in self.user_datas.items():
+                    # 获取用户昵称、剩余次数、群名和失效日期
+                    user_nickname = data.get("mj_datas", {}).get("nickname", "未知昵称")
+                    limit = data.get("mj_datas", {}).get("limit", "未知次数")
+                    group_name = data.get("mj_datas", {}).get("group_name", "非群聊")
+                    expire_time = data.get("mj_datas", {}).get("expire_time", "未知日期")
 
-                    # 只在找到昵称的情况下添加到结果中
-                    if user_nickname:
-                        user_infos.append(f"{user_nickname}: {limit}次")
+                    # 使用格式化函数将日期转换为需要的格式
+                    formatted_expire_time = self.format_date(expire_time)
+
+                    # 拼接用户信息
+                    user_infos.append(f"昵称: {user_nickname}, 群名: {group_name}, 剩余次数: {limit}次, 失效日期: {formatted_expire_time}")
+
 
                 # 将所有用户信息拼接成一个字符串
                 if user_infos:
-                    info_text = "当前用户昵称及剩余次数:\n" + "\n".join(user_infos)
+                    info_text = "当前用户信息:\n" + "\n".join(user_infos)
                 else:
                     info_text = "没有找到用户数据。"
                 
                 return Info(info_text, e_context)
 
-
-
             elif cmd == "mj_s_limit":
                 if len(args) < 1:
                     return Error("[MJ] 请输入需要设置的数量", e_context)
-                limit = int(args[0])
+                
+                try:
+                    limit = int(args[0])
+                except ValueError:
+                    return Error("[MJ] 请输入有效的数字", e_context)
+                
                 if limit < 0:
                     return Error("[MJ] 数量不能小于0", e_context)
+                
+                # 更新系统的 daily_limit
                 self.config["daily_limit"] = limit
-                for index, item in self.user_datas.items():
-                    if "mj_data" in item:  # 确保 mj_data 字段存在
-                        self.user_datas[index]["mj_data"]["limit"] = limit
+                
+                # 更新所有用户（不区分群聊或私聊）的 limit
+                for uid_group, data in self.user_datas.items():
+                    if "mj_datas" in data:  # 确保 mj_datas 字段存在
+                        self.user_datas[uid_group]["mj_datas"]["default_limit"] = limit
+                        self.user_datas[uid_group]["mj_datas"]["limit"] = limit
+                
+                # 保存到文件
                 write_pickle(self.user_datas_path, self.user_datas)
                 write_file(self.json_path, self.config)
-                return Info(f"[MJ] 每日使用次数已设置为{limit}次", e_context)
+                
+                return Info(f"[MJ] 每日使用次数已设置为 {limit} 次", e_context)
 
             elif cmd == "mj_r_limit":
-                for index, item in self.user_datas.items():
-                    if "mj_data" in item:  # 确保 mj_data 字段存在
-                        self.user_datas[index]["mj_data"]["limit"] = self.config["daily_limit"]
-                write_pickle(self.user_datas_path, self.user_datas)
-                return Info(f"[MJ] 所有用户每日使用次数已重置为{self.config['daily_limit']}次", e_context)
+                if len(args) < 1:
+                    return Error("[MJ] 请输入ALL或具体用户昵称", e_context)
+                
+                reset_target = args[0].strip()
+
+                if reset_target.upper() == "ALL":
+                    # 重置所有用户的 limit
+                    for uid_group, data in self.user_datas.items():
+                        if "mj_datas" in data:
+                            self.user_datas[uid_group]["mj_datas"]["limit"] = self.config["daily_limit"]
+                    write_pickle(self.user_datas_path, self.user_datas)
+                    return Info(f"[MJ] 所有用户每日使用次数已重置为 {self.config['daily_limit']} 次", e_context)
+                
+                else:
+                    # 重置指定用户的所有群聊和私聊记录
+                    user_found = False
+                    for uid_group, data in self.user_datas.items():
+                        if data["mj_datas"].get("nickname") == reset_target:
+                            self.user_datas[uid_group]["mj_datas"]["limit"] = self.config["daily_limit"]
+                            user_found = True
+                    
+                    if user_found:
+                        write_pickle(self.user_datas_path, self.user_datas)
+                        return Info(f"[MJ] 用户 {reset_target} 的每日使用次数已重置为 {self.config['daily_limit']} 次", e_context)
+                    else:
+                        return Error(f"[MJ] 未找到用户 {reset_target}", e_context)
+
 
             elif cmd == "set_mj_admin_password":
                 if len(args) < 1:
@@ -1056,73 +1118,148 @@ class Midjourney(Plugin):
 
     
     def get_user_info(self, e_context: EventContext):
-            # 获取当前时间戳
-            current_timestamp = time.time()
-            # 将当前时间戳和给定时间戳转换为日期字符串
-            current_date = time.strftime("%Y-%m-%d", time.localtime(current_timestamp))
-            groups = self.roll["mj_groups"]
-            bgroups = self.roll["mj_bgroups"]
-            users = self.roll["mj_users"]
-            logger.debug(f"[MJ] Type of users: {type(users)}, Content: {users}")
-            busers = self.roll["mj_busers"]
-            mj_admin_users = self.roll["mj_admin_users"]
-            context = e_context['context']
-            msg: ChatMessage = context["msg"]
-            isgroup = context.get("isgroup", False)
-            # 写入用户信息，企业微信没有from_user_nickname，所以使用from_user_id代替
-            uid = msg.from_user_id if not isgroup else msg.actual_user_id
-            uname = (msg.from_user_nickname if msg.from_user_nickname else uid) if not isgroup else msg.actual_user_nickname
-            logger.debug(f"[MJ] UID: {uid}, User data keys: {list(self.user_datas.keys())}")
-            if uid not in self.user_datas:
-                logger.warning(f"[MJ] UID: {uid} not found in user_datas")
-            else:
-                logger.debug(f"[MJ] Found UID: {uid}, Data: {self.user_datas[uid]}")
+        # 获取当前时间戳
+        if os.path.exists(self.user_datas_path):
+            with open(self.user_datas_path, "rb") as f:
+                self.user_datas = pickle.load(f)
+        else:
+            self.user_datas = {}
+        
+        current_timestamp = time.time()
+        # 将当前时间戳和给定时间戳转换为日期字符串
+        current_date = time.strftime("%Y-%m-%d", time.localtime(current_timestamp))
+        groups = self.roll["mj_groups"]
+        bgroups = self.roll["mj_bgroups"]
+        users = self.roll["mj_users"]      
+        busers = self.roll["mj_busers"]
+        mj_admin_users = self.roll["mj_admin_users"]
+        
+        context = e_context['context']
+        msg: ChatMessage = context["msg"]
+        isgroup = context.get("isgroup", False)
+        # 写入用户信息，企业微信没有from_user_nickname，所以使用from_user_id代替
+        uid = msg.from_user_id if not isgroup else msg.actual_user_id
+        uname = (msg.from_user_nickname if msg.from_user_nickname else uid) if not isgroup else msg.actual_user_nickname
+        group_name = msg.from_user_nickname if isgroup else "非群聊"
+        uid_group = f"{uid}_{group_name}"
+        
+        logger.debug(f"[MJ] Type of users: {type(users)}, Content: {users}")
+        logger.debug(f"[MJ] UID: {uid}, User data keys: {list(self.user_datas.keys())}")
 
-            userInfo = {
-                "user_id": uid,
-                "user_nickname": uname,
-                "isgroup": isgroup,
-                "group_id": msg.from_user_id if isgroup else "",
-                "group_name": msg.from_user_nickname if isgroup else "",
-            }
-            # 判断是否是新的一天
-            logger.debug(f"[MJ] UID: {uid}, Type of self.user_datas[uid]: {type(self.user_datas.get(uid))}, Content: {self.user_datas.get(uid)}")
-            if uid not in self.user_datas or "mj_data" not in self.user_datas[uid] or "mj_data" not in self.user_datas[uid] or self.user_datas[uid]["mj_data"]["time"] != current_date:
-                mj_data = {
-                    "limit": self.config["daily_limit"],
-                    "time": current_date,
-                    "nickname": uname  # 在这里添加 nickname 字段
+        # 调用 update_user_data 方法
+        now = datetime.now()
+
+        # 如果没有找到数据，调用更新方法初始化数据
+        if uid_group not in self.user_datas:
+            self.update_user_data(uid, uname, isgroup, group_name)
+
+        # 保存用户数据
+        with open(self.user_datas_path, "wb") as f:
+            pickle.dump(self.user_datas, f)
+
+        # 获取用户的limit
+        limit = self.user_datas[uid_group]["mj_datas"]["limit"] if self.user_datas[uid_group]["mj_datas"]["limit"] > 0 else False
+
+        # 保存用户数据
+        write_pickle(self.user_datas_path, self.user_datas)
+
+        userInfo = {
+            "user_id": uid,
+            "user_nickname": uname,
+            "isgroup": isgroup,
+            "group_id": msg.from_user_id if isgroup else "",
+            "group_name": group_name,
+            "limit": limit,
+            "isadmin": uid in [user["user_id"] for user in mj_admin_users]
+        }
+
+        # 判断白名单和黑名单用户
+
+        # 判断白名单用户
+        if isinstance(users, list):
+            if all(isinstance(user, dict) for user in users):
+                userInfo['iswuser'] = uname in [user["user_nickname"] for user in users]
+            else:
+                userInfo['iswuser'] = uname in users  # 如果 users 是字符串列表
+        else:
+            userInfo['iswuser'] = False
+
+        # 判断黑名单用户
+        if isinstance(busers, list):
+            if all(isinstance(user, dict) for user in busers):
+                userInfo['isbuser'] = uname in [user["user_nickname"] for user in busers]
+            else:
+                userInfo['isbuser'] = uname in busers  # 如果 busers 是字符串列表
+        else:
+            userInfo['isbuser'] = False
+
+
+        userInfo['iswgroup'] = group_name in groups
+        userInfo['isbgroup'] = group_name in bgroups
+        
+        return userInfo
+    
+    def update_user_data(self, uid, nickname, isgroup, group_name=None):
+        now = datetime.now()
+        uid_group = f"{uid}_{group_name if isgroup else '非群聊'}"
+        
+        # 遍历所有用户数据，更新所有相关UID
+        for user_uid, user_data in list(self.user_datas.items()):
+            if user_data['mj_datas']['nickname'] == nickname:
+                # 无论群聊或私聊，更新UID（保持原来的群聊/私聊数据结构）
+                old_uid_group = user_uid
+                updated_data = self.user_datas.pop(old_uid_group)
+                new_uid_group = f"{uid}_{updated_data['mj_datas']['group_name'] if updated_data['mj_datas']['isgroup'] else '非群聊'}"
+                
+                # 更新UID和最后更新时间
+                updated_data['mj_datas']['update_time'] = now
+                self.user_datas[new_uid_group] = updated_data
+
+        # 如果当前群聊或私聊没有记录，创建新的数据
+        if uid_group not in self.user_datas:
+            self.user_datas[uid_group] = {
+                'mj_datas': {
+                    'nickname': nickname,
+                    'isgroup': isgroup,
+                    'group_name': group_name if isgroup else '非群聊',
+                    'default_limit': self.config['daily_limit'],
+                    'limit': self.config['daily_limit'],
+                    'expire_time': (now + timedelta(days=30)).strftime("%Y/%m/%d %H:%M:%S"),
+                    'update_time': now.strftime("%Y/%m/%d %H:%M:%S")
                 }
-                if uid in self.user_datas and self.user_datas[uid]["mj_data"]:
-                    self.user_datas[uid]["mj_data"] = mj_data
-                else:
-                    self.user_datas[uid] = {
-                        "mj_data": mj_data
-                    }
-                write_pickle(self.user_datas_path, self.user_datas)
+            }
 
-            limit = self.user_datas[uid]["mj_data"]["limit"] if "mj_data" in self.user_datas[uid] and "limit" in self.user_datas[uid]["mj_data"] and self.user_datas[uid]["mj_data"]["limit"] and self.user_datas[uid]["mj_data"]["limit"] > 0 else False
-            userInfo['limit'] = limit
-            userInfo['isadmin'] = uid in [user["user_id"] for user in mj_admin_users]
 
-            # 判断白名单用户
-            if isinstance(users, list):
-                if all(isinstance(user, dict) for user in users):
-                    userInfo['iswuser'] = uname in [user["user_nickname"] for user in users]
-                else:
-                    userInfo['iswuser'] = uname in users  # users 中为字符串时
-            else:
-                userInfo['iswuser'] = False
-            
-            # 判断黑名单用户
-            if isinstance(busers, list):
-                if all(isinstance(user, dict) for user in busers):
-                    userInfo['isbuser'] = uname in [user["user_nickname"] for user in busers]
-                else:
-                    userInfo['isbuser'] = uname in busers  # busers 中为字符串时
-            else:
-                userInfo['isbuser'] = False
-            
-            userInfo['iswgroup'] = userInfo["group_name"] in groups
-            userInfo['isbgroup'] = userInfo["group_name"] in bgroups
-            return userInfo
+    def update_limit(self, uid, group_name, amount):
+
+        # 直接在这里加载最新的用户数据
+        if os.path.exists(self.user_datas_path):
+            with open(self.user_datas_path, "rb") as f:
+                self.user_datas = pickle.load(f)
+        else:
+            self.user_datas = {}        
+        
+        now = datetime.now()
+        uid_group = f"{uid}_{group_name if group_name else '非群聊'}"  # 使用组合键
+        logger.debug(f"[MJ] Attempting to update limit for: {uid_group}")
+        # 检查用户是否存在
+        if uid_group in self.user_datas:
+            # 更新用户的 limit 和 update_time
+            self.user_datas[uid_group]['mj_datas']['limit'] -= amount
+            self.user_datas[uid_group]['mj_datas']['update_time'] = now.strftime("%Y/%m/%d %H:%M:%S")
+            logger.debug(f"[MJ] Updated limit for {uid_group}: {self.user_datas[uid_group]['mj_datas']['limit']}")
+        else:
+            logger.warning(f"[MJ] User {uid_group} not found.")     
+
+    def format_date(self, date_obj):
+        if isinstance(date_obj, datetime):  # 确保 `datetime` 是从 `datetime` 模块导入的类
+            return date_obj.strftime("%Y/%m/%d %H:%M:%S")
+        elif isinstance(date_obj, str):
+            try:
+                # 如果是字符串，确保它能够被解析为正确的格式，否则抛出错误
+                datetime.strptime(date_obj, "%Y/%m/%d %H:%M:%S")
+                return date_obj
+            except ValueError:
+                raise TypeError(f"String format is incorrect: {date_obj}")
+        else:
+            raise TypeError(f"Expected str or datetime, but got {type(date_obj)}")

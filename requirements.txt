@@ -1,2 +1,7 @@
-apscheduler
 requests
+Pillow
+flask
+flask-cors
+apscheduler
+urllib3
+itchat-uos

@@ -11,6 +11,7 @@ import io
 import logging
 import traceback
 import plugins
+import openai
 
 from bridge.context import ContextType, Context
 from bridge.reply import Reply, ReplyType
@@ -60,6 +61,8 @@ class Midjourney(Plugin):
             gconf = {
                 "proxy_server": "",
                 "proxy_api_secret": "",
+                "openai_api_key": "",
+                "openai_api_base": "",
                 "mj_admin_password": "12345678",
                 "daily_limit": 10
             }
@@ -93,6 +96,8 @@ class Midjourney(Plugin):
             self.mj_admin_password = gconf.get("mj_admin_password")           
             self.proxy_server = gconf.get("proxy_server")
             self.proxy_api_secret = gconf.get("proxy_api_secret")
+            self.openai_api_key = gconf.get("openai_api_key")  # 从gconf获取API Key
+            self.openai_api_base = gconf.get("openai_api_base")  # 从gconf获取API Base URL
             
             self.handlers[Event.ON_HANDLE_CONTEXT] = self.on_handle_context 
             self.channel = WechatChannel()
@@ -184,7 +189,111 @@ class Midjourney(Plugin):
 
         return help_text
 
+    def generate_trans_prompt(self, content):
+        # GPT的翻译文本
+        trans_prompt = f"""我希望你仅充当 Midjourney V6英文提示词的翻译，无论我给你什么语言的提示，全部直接翻译成中文，不要有任何其他分析过程。"""
+        try:
+            headers = {
+                'Content-Type': 'application/json',
+                'Authorization': f'Bearer {self.openai_api_key}'
+            }
+            data = {
+                "model": "gpt-4o-mini",
+                "messages": [
+                    {"role": "system", "content": trans_prompt},
+                    {"role": "user", "content": content}
+                ]
+            }
+            api_url = f"{self.openai_api_base}/chat/completions"
 
+            # 记录发送给OpenAI的请求内容
+            logger.debug(f"optimized_prompt: 发送的请求URL: {api_url}")
+            logger.debug(f"optimized_prompt: 发送的请求头: {headers}")
+            logger.debug(f"optimized_prompt: 发送的请求数据: {json.dumps(data, indent=2, ensure_ascii=False)}")
+
+            response = requests.post(api_url, headers=headers, data=json.dumps(data))
+            response.raise_for_status()
+            response_data = response.json()
+            
+            if "choices" in response_data and len(response_data["choices"]) > 0:
+                first_choice = response_data["choices"][0]
+                if "message" in first_choice and "content" in first_choice["message"]:
+                    response_content = first_choice["message"]["content"].strip()  # 获取响应内容
+
+                    logger.info(f"翻译后提示词如下：{response_content}")  # 记录响应内容
+
+                    trans_prompt = response_content.replace("\\n", "\n")  # 替换 \\n 为 \n
+
+                    return trans_prompt
+                else:
+                    logger.error("Content not found in the response")
+                    return content
+            else:
+                logger.debug(f"Optimized prompt from GPT: {trans_prompt}")
+                return trans_prompt
+
+        except Exception as e:
+            logger.error(f"Error while calling GPT API: {e}")
+            return content  # 如果出现错误，返回原始内容
+
+
+
+    def generate_optimized_prompt(self, content, reply):
+        # GPT的提示文本，要求其优化提示词并添加画布比例和风格
+        gpt_prompt = f"""我希望你充当 Midjourney V6人工智能画图程序的提示生成器.\n请注意永远只返回英文版的提示词本身，不要有任何其他分析过程，也不用"/imagine "作为开头，以便我直接复制给MJ!\n你的具体工作是在不脱离我给你的提示词内容的前提下，提供详细而富有创意的描述，以激发AI创造独特且有趣的图像。请记住，AI有能力理解广泛的语言并能解释抽象概念，因此尽管自由发挥你的想象力和描述能力。你的描述越详细和富有想象力，结果图像就会越有趣。\n记得提示词最后要按照MJ官方格式（如"--ar 16:9"）补充画布比例和图像风格（如"--v 6"或者"--niji"），画布比例和图像风格如果我给你的提示词没有明确要求，则你自己根据我给你的提示判断画布比例是1:1还是16:9还是9:16最适合，风格同理。若我给你的提示明确表示不需要润色和丰富只需要直接翻译，则仅翻译为英文即可。"""
+        try:
+            headers = {
+                'Content-Type': 'application/json',
+                'Authorization': f'Bearer {self.openai_api_key}'
+            }
+            data = {
+                "model": "gpt-4o-mini",
+                "messages": [
+                    {"role": "system", "content": gpt_prompt},
+                    {"role": "user", "content": content}
+                ]
+            }
+            api_url = f"{self.openai_api_base}/chat/completions"
+
+            # 记录发送给OpenAI的请求内容
+            logger.info(f"optimized_prompt: 发送的请求URL: {api_url}")
+            logger.info(f"optimized_prompt: 发送的请求头: {headers}")
+            logger.info(f"optimized_prompt: 发送的请求数据: {json.dumps(data, indent=2, ensure_ascii=False)}")
+
+            response = requests.post(api_url, headers=headers, data=json.dumps(data))
+            response.raise_for_status()
+            response_data = response.json()
+            
+            if "choices" in response_data and len(response_data["choices"]) > 0:
+                first_choice = response_data["choices"][0]
+                if "message" in first_choice and "content" in first_choice["message"]:
+                    response_content = first_choice["message"]["content"].strip()  # 获取响应内容
+
+                    logger.info(f"优化后提示词如下：{response_content}")  # 记录响应内容
+
+                    optimized_prompt = response_content.replace("\\n", "\n")  # 替换 \\n 为 \n
+                    trans_prompt = self.generate_trans_prompt(optimized_prompt)
+
+
+                    context = Context()
+                    reply = Reply(ReplyType.TEXT, f'✅ 提示词已优化，可作为参考\n🇺🆎 英文：{optimized_prompt} \n🀄️ 中文：{trans_prompt}\n⏳ 任务正在提交，请稍后')
+
+                    try:
+                        self.channel.send(reply, context)
+                    except Exception as e:
+                        logger.error(f"Error sending reply: {e}")
+
+                    return optimized_prompt
+                else:
+                    logger.error("Content not found in the response")
+                    return content
+            else:
+                logger.debug(f"Optimized prompt from GPT: {optimized_prompt}")
+                return optimized_prompt
+
+        except Exception as e:
+            logger.error(f"Error while calling GPT API: {e}")
+            return content  # 如果出现错误，返回原始内容
 
     def on_handle_context(self, e_context: EventContext):
         try:
@@ -195,7 +304,8 @@ class Midjourney(Plugin):
                 return
             context = e_context["context"]
             content = context.content
-
+            # 创建一个回复对象
+            reply = Reply()
             logger.debug(f"[MJ] on_handle_context. content={content}")
             msg: ChatMessage = context["msg"]
             
@@ -230,7 +340,7 @@ class Midjourney(Plugin):
             result = None
             try:
 
-                if content.startswith("/imagine "):
+                if content.startswith("/imagine ") or content.startswith("画"): #“画”字取代dalle3，所以dalle3设置成“画画”
                     
                     # 判断是否在运行中
                     if not self.ismj:
@@ -241,15 +351,22 @@ class Midjourney(Plugin):
                     self.userInfo = self.get_user_info(e_context)
                     if not isinstance(self.userInfo, dict):
                         logger.error(f"Expected self.userInfo to be a dictionary, but got {type(self.userInfo)}")
-                    logger.debug(f"[MJ] userInfo: {self.userInfo}")
+                        logger.debug(f"[MJ] userInfo: {self.userInfo}")
                     self.isgroup = self.userInfo["isgroup"]
 
                     #用户资格判断
                     env = env_detection(self, e_context)
                     if not env:
                         return
-                    
-                    result = self.handle_imagine(content[9:], state)
+                    # 提取用户输入的提示词部分
+                    user_prompt = content[1:].strip()
+
+                    # 调用GPT润色提示词
+                    optimized_prompt = self.generate_optimized_prompt(user_prompt, reply)
+
+                    # 将优化后的提示词传递给handle_imagine处理
+                    result = self.handle_imagine(optimized_prompt, state)
+
                 elif content.startswith("/up "):
 
                     # 判断是否在运行中
@@ -513,8 +630,9 @@ class Midjourney(Plugin):
                                   ('✅ 任务已完成\n📨 任务ID: %s\n✨ %s\n\n' + self.get_buttons(
                                       task) + '\n' + '💡 使用 /up 任务ID 序号执行动作\n🔖 /up %s 1') % (
                                       task_id, description, task_id))
-                    image_storage = self.download_and_compress_image(task['imageUrl'])
-                    url_reply = Reply(ReplyType.IMAGE, image_storage)
+                    url_reply = Reply(ReplyType.IMAGE_URL, task['imageUrl'])
+                    # image_storage = self.download_and_compress_image(task['imageUrl']) #压缩的话注释上面指令并取消注释这两条
+                    # url_reply = Reply(ReplyType.IMAGE, image_storage) #压缩的话注释上面指令并取消注释这两条
                     self.channel.send(url_reply, context)
                     self.channel.send(reply, context)
                     # 成功生成图像后调用
@@ -1263,3 +1381,4 @@ class Midjourney(Plugin):
                 raise TypeError(f"String format is incorrect: {date_obj}")
         else:
             raise TypeError(f"Expected str or datetime, but got {type(date_obj)}")
+

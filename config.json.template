@@ -1,6 +1,8 @@
 {
   "proxy_server": "https://api.**.ai/mj",
   "proxy_api_secret": "sk-**",
+  "openai_api_key": "sk-**",
+  "openai_api_base": "https://api.**.ai/v1",
   "mj_admin_password": "12345678",
   "daily_limit": 10
 }

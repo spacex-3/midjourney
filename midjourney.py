@@ -191,7 +191,7 @@ class Midjourney(Plugin):
 
     def generate_trans_prompt(self, content):
         # GPT的翻译文本
-        trans_prompt = f"""我希望你仅充当 Midjourney V6英文提示词的翻译，无论我给你什么语言的提示，全部直接翻译成中文，不要有任何其他分析过程。"""
+        trans_prompt = f"""我希望你仅充当 Midjourney V6英文提示词的翻译，无论我给你什么语言的提示，全部直接翻译成中文，且仅返回翻译好的内容，不要有任何其他分析过程。"""
         try:
             headers = {
                 'Content-Type': 'application/json',
@@ -238,9 +238,12 @@ class Midjourney(Plugin):
 
 
 
-    def generate_optimized_prompt(self, content, reply):
+    def generate_optimized_prompt(self, e_context, content):
+
+        
+        
         # GPT的提示文本，要求其优化提示词并添加画布比例和风格
-        gpt_prompt = f"""我希望你充当 Midjourney V6人工智能画图程序的提示生成器.\n请注意永远只返回英文版的提示词本身，不要有任何其他分析过程，也不用"/imagine "作为开头，以便我直接复制给MJ!\n你的具体工作是在不脱离我给你的提示词内容的前提下，提供详细而富有创意的描述，以激发AI创造独特且有趣的图像。请记住，AI有能力理解广泛的语言并能解释抽象概念，因此尽管自由发挥你的想象力和描述能力。你的描述越详细和富有想象力，结果图像就会越有趣。\n记得提示词最后要按照MJ官方格式（如"--ar 16:9"）补充画布比例和图像风格（如"--v 6"或者"--niji"），画布比例和图像风格如果我给你的提示词没有明确要求，则你自己根据我给你的提示判断画布比例是1:1还是16:9还是9:16最适合，风格同理。若我给你的提示明确表示不需要润色和丰富只需要直接翻译，则仅翻译为英文即可。"""
+        gpt_prompt = f"""我希望你充当 Midjourney V6人工智能画图程序的提示生成器.\n请注意永远只返回英文版的提示词本身，不要有任何其他分析过程，也不用"/imagine "作为开头，以便我直接复制给MJ!\n你的具体工作是在不脱离我给你的提示词内容的前提下，提供详细而富有创意的描述，以激发AI创造独特且有趣的图像。请记住，AI有能力理解广泛的语言并能解释抽象概念，因此尽管自由发挥你的想象力和描述能力。你的描述越详细和富有想象力，结果图像就会越有趣。\n记得提示词最后要按照MJ官方格式（如"--ar 16:9"）补充画布比例和图像风格（如"--v 6"或者"--niji"），画布比例和图像风格如果我给你的提示词没有明确要求，则你自己根据我给你的提示判断画布比例是1:1还是16:9还是9:16或者其他比例最适合，风格同理。若我给你的提示明确表示不需要润色和丰富只需要直接翻译，则仅翻译为英文即可。"""
         try:
             headers = {
                 'Content-Type': 'application/json',
@@ -274,14 +277,9 @@ class Midjourney(Plugin):
                     optimized_prompt = response_content.replace("\\n", "\n")  # 替换 \\n 为 \n
                     trans_prompt = self.generate_trans_prompt(optimized_prompt)
 
-
-                    context = Context()
-                    reply = Reply(ReplyType.TEXT, f'✅ 提示词已优化，可作为参考\n🇺🆎 英文：{optimized_prompt} \n🀄️ 中文：{trans_prompt}\n⏳ 任务正在提交，请稍后')
-
-                    try:
-                        self.channel.send(reply, context)
-                    except Exception as e:
-                        logger.error(f"Error sending reply: {e}")
+                    reply = Reply(ReplyType.TEXT, f"💡 提示词已优化，可作为参考\n\n🆎 英文：{optimized_prompt} \n\n🀄️ 中文：{trans_prompt}\n\n⏳ 任务正在提交，请稍后")            
+                    channel = e_context["channel"]
+                    _send(channel, reply, e_context["context"])
 
                     return optimized_prompt
                 else:
@@ -296,6 +294,7 @@ class Midjourney(Plugin):
             return content  # 如果出现错误，返回原始内容
 
     def on_handle_context(self, e_context: EventContext):
+        
         try:
             if not isinstance(self.user_datas, dict):
                 logger.error(f"Expected self.user_datas to be a dictionary, but got {type(self.user_datas)}")
@@ -351,18 +350,23 @@ class Midjourney(Plugin):
                     self.userInfo = self.get_user_info(e_context)
                     if not isinstance(self.userInfo, dict):
                         logger.error(f"Expected self.userInfo to be a dictionary, but got {type(self.userInfo)}")
-                        logger.debug(f"[MJ] userInfo: {self.userInfo}")
+                    logger.debug(f"[MJ] userInfo: {self.userInfo}")
                     self.isgroup = self.userInfo["isgroup"]
 
                     #用户资格判断
                     env = env_detection(self, e_context)
                     if not env:
                         return
+                    
+                    reply = Reply(ReplyType.TEXT, "✅ 已收到您的提示词，正在由GPT4润色，请稍后。")
+                    channel = e_context["channel"]
+                    _send(channel, reply, e_context["context"])
+
                     # 提取用户输入的提示词部分
                     user_prompt = content[1:].strip()
 
                     # 调用GPT润色提示词
-                    optimized_prompt = self.generate_optimized_prompt(user_prompt, reply)
+                    optimized_prompt = self.generate_optimized_prompt(e_context, user_prompt)
 
                     # 将优化后的提示词传递给handle_imagine处理
                     result = self.handle_imagine(optimized_prompt, state)
@@ -1382,3 +1386,14 @@ class Midjourney(Plugin):
         else:
             raise TypeError(f"Expected str or datetime, but got {type(date_obj)}")
 
+def _send(channel, reply: Reply, context, retry_cnt=0):
+    try:
+        channel.send(reply, context)
+    except Exception as e:
+        logger.error("[WX] sendMsg error: {}".format(str(e)))
+        if isinstance(e, NotImplementedError):
+            return
+        logger.exception(e)
+        if retry_cnt < 2:
+            time.sleep(3 + 3 * retry_cnt)
+            channel.send(reply, context, retry_cnt + 1)

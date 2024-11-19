@@ -11,7 +11,7 @@ import io
 import logging
 import traceback
 import plugins
-import openai
+import re
 
 from bridge.context import ContextType, Context
 from bridge.reply import Reply, ReplyType
@@ -25,7 +25,10 @@ from datetime import datetime, timedelta
 from typing import Tuple
 
 from PIL import Image
-from apscheduler.schedulers.blocking import BlockingScheduler
+# from apscheduler.schedulers.blocking import BlockingScheduler
+from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.jobstores.memory import MemoryJobStore
+from apscheduler.executors.pool import ThreadPoolExecutor
 from lib import itchat
 from lib.itchat.content import *
 
@@ -36,7 +39,9 @@ from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
 import sys
+import signal
 import atexit
+
 
 
 
@@ -104,17 +109,44 @@ class Midjourney(Plugin):
             self.task_id_dict = ExpiredDict(60 * 60)
             self.cmd_dict = ExpiredDict(60 * 60)
 
-            # 创建调度器
-            self.scheduler = BlockingScheduler()
-            self.scheduler.add_job(self.query_task_result, 'interval', seconds=10)
-            logging.getLogger('apscheduler').setLevel(logging.WARNING)
+            # # 创建调度器
+            # self.scheduler = BlockingScheduler()
+            # self.scheduler.add_job(self.query_task_result, 'interval', seconds=10)
+            # logging.getLogger('apscheduler').setLevel(logging.WARNING)
+
+            # # 创建并启动一个新的线程来运行调度器
+            # self.scheduler_thread = threading.Thread(target=self.scheduler.start, daemon=True)
+            # self.scheduler_thread.start()
+
+            # # 注册程序退出时的清理函数，确保调度器能够优雅关闭
+            # atexit.register(self.graceful_shutdown)
+
+            # 创建调度器（使用 BackgroundScheduler 而不是 BlockingScheduler）
+            self.jobstores = {
+                'default': MemoryJobStore(),  # 使用内存存储任务
+            }
+
+            # 线程池执行器，允许更多的并发任务
+            self.executors = {
+                'default': ThreadPoolExecutor(10),  # 设置线程池大小
+            }
+
+            self.scheduler = BackgroundScheduler(jobstores=self.jobstores, executors=self.executors)
+
+            # 添加任务，设置 max_instances 为 5，允许并发执行最多 5 个任务
+            self.scheduler.add_job(self.query_task_result, 'interval', seconds=10, max_instances=5)
+
+            logging.getLogger('apscheduler').setLevel(logging.WARNING)  # 设置日志等级，避免显示过多日志
+
+            # 启动调度器
+            self.scheduler.start()
 
             # 创建并启动一个新的线程来运行调度器
-            self.scheduler_thread = threading.Thread(target=self.scheduler.start, daemon=True)
-            self.scheduler_thread.start()
+            # 去掉原先的 BlockingScheduler 相关代码
 
             # 注册程序退出时的清理函数，确保调度器能够优雅关闭
             atexit.register(self.graceful_shutdown)
+
 
             # 重新写入合并后的配置文件
             write_file(self.json_path, self.config)
@@ -243,7 +275,7 @@ class Midjourney(Plugin):
         
         
         # GPT的提示文本，要求其优化提示词并添加画布比例和风格
-        gpt_prompt = f"""我希望你充当 Midjourney V6人工智能画图程序的提示生成器.\n请注意永远只返回英文版的提示词本身，不要有任何其他分析过程，也不用"/imagine "作为开头，以便我直接复制给MJ!\n你的具体工作是在不脱离我给你的提示词内容的前提下，提供详细而富有创意的描述，以激发AI创造独特且有趣的图像。请记住，AI有能力理解广泛的语言并能解释抽象概念，因此尽管自由发挥你的想象力和描述能力。你的描述越详细和富有想象力，结果图像就会越有趣。\n记得提示词最后要按照MJ官方格式（如"--ar 16:9"）补充画布比例和图像风格（如"--v 6"或者"--niji"），画布比例和图像风格如果我给你的提示词没有明确要求，则你自己根据我给你的提示判断画布比例是1:1还是16:9还是9:16或者其他比例最适合，风格同理。若我给你的提示明确表示不需要润色和丰富只需要直接翻译，则仅翻译为英文即可。"""
+        gpt_prompt = f"""我希望你充当 Midjourney V6人工智能画图程序的提示生成器.\n请注意永远永远永远只按照这个格式的内容返回“🆎 英文：具体提示词本身内容英文原文（需包括画布比例和图像风格）\n\n🀄️ 中文：具体提示词本身内容的中文翻译（需包括画布比例和图像风格）”，不要有任何其他分析过程，也不用"/imagine "作为开头，以便我直接复制给MJ!\n你的具体工作是在不脱离我给你的提示词内容的前提下，提供详细而富有创意的描述，以激发AI创造独特且有趣的图像。请记住，AI有能力理解广泛的语言并能解释抽象概念，因此尽管自由发挥你的想象力和描述能力。你的描述越详细和富有想象力，结果图像就会越有趣。\n记得提示词最后要按照MJ官方格式（如"--ar 16:9"）补充画布比例和图像风格（如"--v 6"或者"--niji"），画布比例和图像风格如果我给你的提示词没有明确要求，则你自己根据我给你的提示判断画布比例是1:1还是16:9还是9:16或者其他比例最适合，风格同理。若我给你的提示明确表示不需要润色和丰富只需要直接翻译，则仅翻译为英文即可。"""
         try:
             headers = {
                 'Content-Type': 'application/json',
@@ -275,9 +307,9 @@ class Midjourney(Plugin):
                     logger.info(f"优化后提示词如下：{response_content}")  # 记录响应内容
 
                     optimized_prompt = response_content.replace("\\n", "\n")  # 替换 \\n 为 \n
-                    trans_prompt = self.generate_trans_prompt(optimized_prompt)
+                    # trans_prompt = self.generate_trans_prompt(optimized_prompt)
 
-                    reply = Reply(ReplyType.TEXT, f"💡 提示词已优化，可作为参考\n\n🆎 英文：{optimized_prompt} \n\n🀄️ 中文：{trans_prompt}\n\n⏳ 任务正在提交，请稍后")            
+                    reply = Reply(ReplyType.TEXT, f"💡 提示词已优化，可作为参考\n\n{optimized_prompt} \n\n⏳ 任务正在提交，请稍后")         
                     channel = e_context["channel"]
                     _send(channel, reply, e_context["context"])
 
@@ -365,11 +397,21 @@ class Midjourney(Plugin):
                     # 提取用户输入的提示词部分
                     user_prompt = content[1:].strip()
 
-                    # 调用GPT润色提示词
+                    # 调用GPT润色中英文提示词
                     optimized_prompt = self.generate_optimized_prompt(e_context, user_prompt)
+                    logger.info(f"[{optimized_prompt}")
+
+                    # 提取纯英文部分    
+                    match = re.search(r"🆎 英文：(.*?)🀄️", optimized_prompt, re.DOTALL)     
+                    if match:
+                        english_prompt = match.group(1).replace("\n", " ")  # 去掉换行符
+                        logger.info(f"[已找到英文提示词：{english_prompt}")
+                    else:
+                        english_prompt = optimized_prompt
+                        logger.info(f"[没有英文提示词，直接发送完整提示词：{english_prompt}")
 
                     # 将优化后的提示词传递给handle_imagine处理
-                    result = self.handle_imagine(optimized_prompt, state)
+                    result = self.handle_imagine(english_prompt, state)
 
                 elif content.startswith("/up "):
 
@@ -1385,6 +1427,7 @@ class Midjourney(Plugin):
                 raise TypeError(f"String format is incorrect: {date_obj}")
         else:
             raise TypeError(f"Expected str or datetime, but got {type(date_obj)}")
+    
 
 def _send(channel, reply: Reply, context, retry_cnt=0):
     try:

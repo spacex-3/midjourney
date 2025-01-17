@@ -1,18 +1,9 @@
-# encoding:utf-8
-import os
-import re
-import io
+
 import json
-import base64
 import pickle
 import requests
-from PIL import Image
 from plugins import *
-from lib import itchat
-from lib.itchat.content import *
-from bridge.reply import Reply, ReplyType
-from config import conf
-from common.log import logger
+from plugins import register, Plugin, Event, Reply, ReplyType, logger
 
 COMMANDS = {
     "mj_help": {
@@ -171,93 +162,53 @@ def write_file(path, content):
     with open(path, "w", encoding="utf-8") as f:
         json.dump(content, f, indent=4)
     return True
-def Text(msg, e_context: EventContext):
-    return send(msg, e_context, ReplyType.TEXT)
 
-
-def Image_file(msg, e_context: EventContext):
-    return send(msg, e_context, ReplyType.IMAGE)
-
-
-def Image_url(msg, e_context: EventContext):
-    return send(msg, e_context, ReplyType.IMAGE_URL)
-
-
-def Info(msg, e_context: EventContext):
-    return send(msg, e_context, ReplyType.INFO)
-
-
-def Error(msg, e_context: EventContext):
-    return send(msg, e_context, ReplyType.ERROR)
-
-
-def send(reply, e_context: EventContext, reply_type=ReplyType.TEXT, action=EventAction.BREAK_PASS):
-    if isinstance(reply, Reply):
-        if not reply.type and reply_type:
-            reply.type = reply_type
-    else:
-        reply = Reply(reply_type, reply)
-    e_context["reply"] = reply
-    e_context.action = action
-    return
-
-
-def Textr(msg, e_context: EventContext):
-    return send_reply(msg, e_context, ReplyType.TEXT)
-
-
-def Image_filer(msg, e_context: EventContext):
-    return send_reply(msg, e_context, ReplyType.IMAGE)
-
-
-def Image_url_reply(msg, e_context: EventContext):
-    return send_reply(msg, e_context, ReplyType.IMAGE_URL)
-
-
-def Info_reply(msg, e_context: EventContext):
-    return send_reply(msg, e_context, ReplyType.INFO)
-
-
-def Error_reply(msg, e_context: EventContext):
-    return send_reply(msg, e_context, ReplyType.ERROR)
-
-
-def send_reply(reply, e_context: EventContext, reply_type=ReplyType.TEXT):
-    if isinstance(reply, Reply):
-        if not reply.type and reply_type:
-            reply.type = reply_type
-    else:
-        reply = Reply(reply_type, reply)
-    channel = e_context['channel']
-    context = e_context['context']
-    # reply的包装步骤
-    rd = channel._decorate_reply(context, reply)
-    # reply的发送步骤
-    return channel._send_reply(context, rd)
 
 def search_friends(name):
     userInfo = {
         "user_id": "",
         "user_nickname": ""
     }
-    # 判断是id还是昵称
-    if name.startswith("@"):
-        friends = itchat.search_friends(userName=name)
-    else:
-        friends = itchat.search_friends(name=name)
-    if friends and len(friends) > 0:
-        if isinstance(friends, list):
-            userInfo["user_id"] = friends[0]["UserName"]
-            userInfo["user_nickname"] = friends[0]["NickName"]
-        else:
-            userInfo["user_id"] = friends["UserName"]
-            userInfo["user_nickname"] = friends["NickName"]
+    # 设置 Wrest 请求 URL 和 Headers
+    url = "http://127.0.0.1:7600/wcf/db_query_sql"
+    headers = {
+        "accept": "application/json",
+        "Content-Type": "application/json"
+    }
+    
+    # 构建 SQL 查询，根据用户名或备注名进行搜索
+    sql_query = f"""
+        SELECT UserName, NickName 
+        FROM Contact 
+        WHERE NickName = '{name}' OR Remark = '{name}'
+    """
+    payload = {
+        "db": "MicroMsg.sb",
+        "sql": sql_query
+    }
+    
+    try:
+        # 发送 POST 请求
+        response = requests.post(url, headers=headers, json=payload)
+        response.raise_for_status()
+        
+        # 解析返回结果
+        data = response.json()
+        if data and isinstance(data, list) and len(data) > 0:
+            # 取第一个匹配的结果
+            user = data[0]
+            userInfo["user_id"] = user.get("UserName", "")
+            userInfo["user_nickname"] = user.get("NickName", "")
+    except requests.RequestException as e:
+        print(f"Error during request: {e}")
+    except KeyError as e:
+        print(f"Key error in response: {e}")
+    
     return userInfo
 
 
-def env_detection(self, e_context: EventContext):
-    trigger_prefix = conf().get("plugin_trigger_prefix", "$")
-    reply = None
+
+def env_detection(self, event: Event):
     
     # 如果用户是管理员或者在白名单用户列表中，则不受限制
     if self.userInfo["isadmin"] or self.userInfo["iswuser"]:
@@ -269,10 +220,8 @@ def env_detection(self, e_context: EventContext):
         if self.userInfo["iswgroup"]:
             return True
         else:
-            reply = Reply(ReplyType.ERROR, "[MJ] 您今日的使用次数已用完，请明日再来")
-            e_context["reply"] = reply
-            e_context.action = EventAction.BREAK_PASS
+            event.channel.send("[MJ] 您今日的使用次数已用完，请明日再来", event.message)
+            event.bypass()
             return False
 
     return True
-

@@ -2,7 +2,6 @@ import json
 import requests
 import base64
 import os
-import logging
 import traceback
 import re
 import sys
@@ -265,20 +264,42 @@ class Midjourney(Plugin):
             logger.debug(f"Error while calling GPT API: {e}")
             return event.message.content  # 如果出现错误，返回原始内容
 
-    def on_handle_context(self, event: Event):
+    def will_decorate_reply(self, event: Event):
+        pass
+
+    def will_send_reply(self, event: Event):
+        pass
+
+    def will_generate_reply(self, event: Event):
+        pass
+
+    def did_receive_message(self, event: Event):
+        
+        query = event.message.content.strip()
+        is_group = event.message.is_group
+        is_at = event.message.is_at
+
+        if event.message.type not in [1]:
+            return
+
+        # 如果是群聊，且消息没有 @机器人，则直接返回
+        if is_group:  # and not is_at:
+            return
+
+        # 如果是群聊，移除 @机器人 的内容
+        #if is_group and is_at:
+        #   query = re.sub(r'@[\w]+\s+', '', query, count=1).strip()
         
         try:
             if not isinstance(self.user_datas, dict):
                 logger.debug(f"Expected self.user_datas to be a dictionary, but got {type(self.user_datas)}")
 
-            if event.message.type not in [1, 3]:
-                return
             context = event.message
-            content = event.message.content
+            content = query
             msg = event.message
             # 创建一个回复对象
-            reply = Reply()
-            logger.debug(f"[MJ] on_handle_context. content={content}")            
+            reply = Reply(ReplyType.TEXT, "")
+            logger.debug(f"[MJ] did_receive_message. content={content}")            
 
             if context.type == 1 and content.startswith(self.trigger_prefix):
                 
@@ -310,11 +331,11 @@ class Midjourney(Plugin):
             result = None
 
             try:
-                if content.startswith("/imagine ") or content.startswith(self.commands): #“画”字取代dalle3，所以dalle3设置成“画画”
+                if content.startswith("/imagine ") or content.startswith(tuple(self.commands)): #“画”字取代dalle3，所以dalle3设置成“画画”
                     
                     # 判断是否在运行中
                     if not self.ismj:
-                        reply = "MJ功能已停止，请联系管理员开启。"
+                        reply = Reply(ReplyType.TEXT, "MJ功能已停止，请联系管理员开启。")
                         event.channel.send(reply, event.message)
                         event.bypass()  
                         return                   
@@ -331,7 +352,7 @@ class Midjourney(Plugin):
                     if not env:
                         return
                     
-                    reply = "✅ 已收到您的提示词，正在由GPT4润色，请稍后。"
+                    reply = Reply(ReplyType.TEXT, "✅ 已收到您的提示词，正在由GPT4润色，请稍后。")
                     event.channel.send(reply, event.message)
 
                     # 提取用户输入的提示词部分
@@ -357,7 +378,7 @@ class Midjourney(Plugin):
 
                     # 判断是否在运行中
                     if not self.ismj:
-                        reply = "MJ功能已停止，请联系管理员开启。"
+                        reply = Reply(ReplyType.TEXT, "MJ功能已停止，请联系管理员开启。")
                         event.channel.send(reply, event.message)
                         event.bypass()  
                         return                          
@@ -365,7 +386,7 @@ class Midjourney(Plugin):
                     self.userInfo = self.get_user_info(event)
                     if not isinstance(self.userInfo, dict):
                         logger.debug(f"Expected self.userInfo to be a dictionary, but got {type(self.userInfo)}")
-                        logger.debug(f"[MJ] userInfo: {self.userInfo}")
+                    logger.debug(f"[MJ] userInfo: {self.userInfo}")
                     self.isgroup = self.userInfo["isgroup"]
 
                     #用户资格判断
@@ -378,26 +399,26 @@ class Midjourney(Plugin):
                         task_id = arr[0]
                         index = int(arr[1])
                     except Exception as e:
-                        reply = "❌ 您的任务提交失败\nℹ️ 参数错误"
+                        reply = Reply(ReplyType.TEXT, "❌ 您的任务提交失败\nℹ️ 参数错误")
                         event.channel.send(reply, event.message)
                         event.bypass()  
                         return
                     # 获取任务
                     task = self.get_task(task_id)
                     if task is None:
-                        reply = "❌ 您的任务提交失败\nℹ️ 任务ID不存在"
+                        reply = Reply(ReplyType.TEXT, "❌ 您的任务提交失败\nℹ️ 任务ID不存在")
                         event.channel.send(reply, event.message)
                         event.bypass()                          
                         return
                     if index > len(task['buttons']):
-                        reply = "❌ 您的任务提交失败\nℹ️ 按钮序号不正确"
+                        reply = Reply(ReplyType.TEXT, "❌ 您的任务提交失败\nℹ️ 按钮序号不正确")
                         event.channel.send(reply, event.message)
                         event.bypass()                          
                         return
                     # 获取按钮
                     button = task['buttons'][index - 1]
                     if button['label'] == 'Custom Zoom':
-                        reply = "❌ 您的任务提交失败\nℹ️ 暂不支持自定义变焦"
+                        reply = Reply(ReplyType.TEXT, "❌ 您的任务提交失败\nℹ️ 暂不支持自定义变焦")
                         event.channel.send(reply, event.message)
                         event.bypass()                          
                         return
@@ -409,7 +430,7 @@ class Midjourney(Plugin):
                 elif content.startswith("/img2img "):
                     # 判断是否在运行中
                     if not self.ismj:
-                        reply = "MJ功能已停止，请联系管理员开启。'"
+                        reply = Reply(ReplyType.TEXT, "MJ功能已停止，请联系管理员开启。")
                         event.channel.send(reply, event.message)
                         event.bypass()                                               
                         return                          
@@ -427,14 +448,14 @@ class Midjourney(Plugin):
                     
                     self.cmd_dict[msg.sender_id] = content
 
-                    reply = "请给我发一张图片作为垫图"
+                    reply = Reply(ReplyType.TEXT, "请给我发一张图片作为垫图")
                     event.channel.send(reply, event.message)
                     event.bypass()                  
                     return
                 elif content == "/describe":
                     # 判断是否在运行中
                     if not self.ismj:
-                        reply = "MJ功能已停止，请联系管理员开启。"
+                        reply = Reply(ReplyType.TEXT, "MJ功能已停止，请联系管理员开启。")
                         event.channel.send(reply, event.message)
                         event.bypass()                                              
                         return      
@@ -451,14 +472,14 @@ class Midjourney(Plugin):
                         return        
 
                     self.cmd_dict[msg.actual_user_id] = content
-                    reply = "请给我发一张图片用于图生文"
+                    reply = Reply(ReplyType.TEXT, "请给我发一张图片用于图生文")
                     event.channel.send(reply, event.message)
                     event.bypass()                      
                     return
                 elif content.startswith("/shorten "):
                     # 判断是否在运行中
                     if not self.ismj:
-                        reply = "MJ功能已停止，请联系管理员开启。"
+                        reply = Reply(ReplyType.TEXT, "MJ功能已停止，请联系管理员开启。")
                         event.channel.send(reply, event.message)
                         event.bypass()                                               
                         return      
@@ -478,7 +499,7 @@ class Midjourney(Plugin):
                 elif content.startswith("/seed "):
                     # 判断是否在运行中
                     if not self.ismj:
-                        reply = "MJ功能已停止，请联系管理员开启。"
+                        reply = Reply(ReplyType.TEXT, "MJ功能已停止，请联系管理员开启。")
                         event.channel.send(reply, event.message)
                         event.bypass()                                               
                         return      
@@ -497,11 +518,11 @@ class Midjourney(Plugin):
                     task_id = content[6:]
                     result = self.get_task_image_seed(task_id)
                     if result.get("code") == 1:
-                        event.channel.send('✅ 获取任务图片seed成功\n📨 任务ID: %s\n🔖 seed值: %s' % (
-                                        task_id, result.get("result")), event.message)
+                        event.channel.send(Reply(ReplyType.TEXT, f'✅ 获取任务图片seed成功\n📨 任务ID: %s\n🔖 seed值: %s' % (
+                                        task_id, result.get("result"))), event.message)
                     else:
-                        event.channel.send('❌ 获取任务图片seed失败\n📨 任务ID: %s\nℹ️ %s' % (
-                                        task_id, result.get("description")), event.message)
+                        event.channel.send(Reply(ReplyType.TEXT, f'❌ 获取任务图片seed失败\n📨 任务ID: %s\nℹ️ %s' % (
+                                        task_id, result.get("description"))), event.message)
                     event.bypass() 
                     return
                 elif context.type == 3:
@@ -530,17 +551,20 @@ class Midjourney(Plugin):
             if code == 1:
                 task_id = result.get("result")
                 self.add_task(task_id)
-                event.channel.send(f'✅ 您的任务已提交\n🚀 正在快速处理中，请稍后\n📨 任务ID: {task_id} \n⏳本次生成图像后，有效期内还剩余 {remaining_uses - 1} 次\n⏰有效期: {user_expire_time} ', event.message)
+                reply = Reply(ReplyType.TEXT, f'✅ 您的任务已提交\n🚀 正在快速处理中，请稍后\n📨 任务ID: {task_id} \n⏳本次生成图像后，有效期内还剩余 {remaining_uses - 1} 次\n⏰有效期: {user_expire_time}')
+                event.channel.send(reply, event.message)
             elif code == 22:
                 self.add_task(result.get("result"))
-                event.channel.send(f'✅ 您的任务已提交\n⏰ {result.get("description")} \n⏳本次生成图像后，有效期内还剩余 {remaining_uses - 1} 次\n⏰有效期: {user_expire_time} ', event.message)
+                reply = Reply(ReplyType.TEXT, f'✅ 您的任务已提交\n⏰ {result.get("description")} \n⏳本次生成图像后，有效期内还剩余 {remaining_uses - 1} 次\n⏰有效期: {user_expire_time}')
+                event.channel.send(reply, event.message)
             else:
-                event.channel.send(f'❌ 您的任务提交失败\nℹ️ {result.get("description")} \n⏳本次不扣除次数，有效期内还剩余 {remaining_uses} 次\n⏰有效期: {user_expire_time} ', event.message)
+                reply = Reply(ReplyType.TEXT, f'❌ 您的任务提交失败\nℹ️ {result.get("description")} \n⏳本次不扣除次数，有效期内还剩余 {remaining_uses} 次\n⏰有效期: {user_expire_time}')
+                event.channel.send(reply, event.message)
             event.bypass() 
         except Exception as e:
             logger.warning(f"[MJ] failed to generate pic, error={e}")
             logger.warning(f"Traceback: {traceback.format_exc()}")
-            reply = "抱歉！创作失败了，请稍后再试🥺"
+            reply = Reply(ReplyType.TEXT, "抱歉！创作失败了，请稍后再试🥺")
             event.channel.send(reply, event.message)
             event.bypass() 
 
@@ -713,26 +737,26 @@ class Midjourney(Plugin):
         if any(cmd in info["alias"] for info in COMMANDS.values()):
             cmd = next(c for c, info in COMMANDS.items() if cmd in info["alias"])
             if cmd == "mj_help":
-                event.channel.send(self.get_help_text(admin=self.userInfo.get("isadmin", False)), event.message)
+                event.channel.send(Reply(ReplyType.TEXT, self.help), event.message)
                 event.bypass()
             elif cmd == "mj_admin_cmd":
                 if not self.userInfo["isadmin"]:
-                     event.channel.send("[MJ] 您没有权限执行该操作，请先进行管理员认证", event.message)
+                     event.channel.send(Reply(ReplyType.TEXT, "[MJ] 您没有权限执行该操作，请先进行管理员认证"), event.message)
                      event.bypass()
-                event.channel.send(self.get_help_text(admin=True), event.message)
+                event.channel.send(Reply(ReplyType.TEXT, self.get_help_text(admin=True)), event.message)
                 event.bypass()
             elif cmd == "mj_admin_password":
                 ok, result = self.authenticate(self.userInfo, args)
                 if not ok:
-                    event.channel.send(result, event.message)
+                    event.channel.send(Reply(ReplyType.TEXT, result), event.message)
                     event.bypass()
                 else:
-                    event.channel.send(result, event.message)
+                    event.channel.send(Reply(ReplyType.TEXT, result), event.message)
                     event.bypass()
         elif any(cmd in info["alias"] for info in ADMIN_COMMANDS.values()):
             cmd = next(c for c, info in ADMIN_COMMANDS.items() if cmd in info["alias"])
             if not self.userInfo["isadmin"]:
-                event.channel.send("[MJ] 您没有权限执行该操作，请先进行管理员认证", event.message)
+                event.channel.send(Reply(ReplyType.TEXT, "[MJ] 您没有权限执行该操作，请先进行管理员认证"), event.message)
                 event.bypass()
             
             # 在 handle_command 函数中添加 mj_g_info 处理逻辑
@@ -764,22 +788,22 @@ class Midjourney(Plugin):
                 else:
                     info_text = "没有找到用户数据。"
                 
-                event.channel.send(info_text, event.message)
+                event.channel.send(Reply(ReplyType.TEXT, info_text), event.message)
                 event.bypass()
 
             elif cmd == "mj_s_limit":
                 if len(args) < 1:
-                    event.channel.send("[MJ] 请输入需要设置的数量", event.message)
+                    event.channel.send(Reply(ReplyType.TEXT, "[MJ] 请输入需要设置的数量"), event.message)
                     event.bypass()
                 
                 try:
                     limit = int(args[0])
                 except ValueError:
-                    event.channel.send("[MJ] 请输入有效的数字", event.message)
+                    event.channel.send(Reply(ReplyType.TEXT, "[MJ] 请输入有效的数字"), event.message)
                     event.bypass()
                 
                 if limit < 0:
-                    event.channel.send("[MJ] 数量不能小于0", event.message)
+                    event.channel.send(Reply(ReplyType.TEXT, "[MJ] 数量不能小于0"), event.message)
                     event.bypass()
                 
                 # 更新系统的 daily_limit
@@ -795,12 +819,12 @@ class Midjourney(Plugin):
                 write_pickle(self.user_datas_path, self.user_datas)
                 write_file(self.json_path, self.nconfig)
                 
-                event.channel.send(f"[MJ] 每日使用次数已设置为 {limit} 次", event.message)
+                event.channel.send(Reply(ReplyType.TEXT, f"[MJ] 每日使用次数已设置为 {limit} 次"), event.message)
                 event.bypass()
 
             elif cmd == "mj_r_limit":
                 if len(args) < 1:
-                    event.channel.send("[MJ] 请输入ALL或具体用户昵称", event.message)
+                    event.channel.send(Reply(ReplyType.TEXT, "[MJ] 请输入ALL或具体用户昵称"), event.message)
                     event.bypass()
                 
                 reset_target = args[0].strip()
@@ -811,7 +835,7 @@ class Midjourney(Plugin):
                         if "mj_datas" in data:
                             self.user_datas[uid_group]["mj_datas"]["limit"] = self.nconfig["daily_limit"]
                     write_pickle(self.user_datas_path, self.user_datas)
-                    event.channel.send(f"[MJ] 所有用户每日使用次数已重置为 {self.nconfig['daily_limit']} 次", event.message)
+                    event.channel.send(Reply(ReplyType.TEXT, f"[MJ] 所有用户每日使用次数已重置为 {self.nconfig['daily_limit']} 次"), event.message)
                     event.bypass()
                 
                 else:
@@ -824,56 +848,56 @@ class Midjourney(Plugin):
                     
                     if user_found:
                         write_pickle(self.user_datas_path, self.user_datas)
-                        event.channel.send(f"[MJ] 用户 {reset_target} 的每日使用次数已重置为 {self.nconfig['daily_limit']} 次", event.message)
+                        event.channel.send(Reply(ReplyType.TEXT, f"[MJ] 用户 {reset_target} 的每日使用次数已重置为 {self.nconfig['daily_limit']} 次"), event.message)
                         event.bypass()
                     else:
-                        event.channel.send(f"[MJ] 未找到用户 {reset_target}", event.message)
+                        event.channel.send(Reply(ReplyType.TEXT, f"[MJ] 未找到用户 {reset_target}"), event.message)
                         event.bypass()
 
 
             elif cmd == "set_mj_admin_password":
                 if len(args) < 1:
-                    event.channel.send("[MJ] 请输入需要设置的密码", event.message)
+                    event.channel.send(Reply(ReplyType.TEXT, "[MJ] 请输入需要设置的密码"), event.message)
                     event.bypass()
                 password = args[0]
                 if self.isgroup:
-                    event.channel.send("[MJ] 为避免密码泄露，请勿在群聊中进行修改", event.message)
+                    event.channel.send(Reply(ReplyType.TEXT, "[MJ] 为避免密码泄露，请勿在群聊中进行修改"), event.message)
                     event.bypass()
                 if len(password) < 6:
-                    event.channel.send("[MJ] 密码长度不能小于6位", event.message)
+                    event.channel.send(Reply(ReplyType.TEXT, "[MJ] 密码长度不能小于6位"), event.message)
                     event.bypass()
                 if password == self.nconfig['mj_admin_password']:
-                    event.channel.send("[MJ] 新密码不能与旧密码相同", event.message)
+                    event.channel.send(Reply(ReplyType.TEXT, "[MJ] 新密码不能与旧密码相同"), event.message)
                     event.bypass()
                 self.nconfig["mj_admin_password"] = password
                 write_file(self.json_path, self.nconfig)
-                event.channel.send("[MJ] 管理员口令设置成功", event.message)
+                event.channel.send(Reply(ReplyType.TEXT, "[MJ] 管理员口令设置成功"), event.message)
                 event.bypass()
             elif cmd == "mj_stop":
                 self.ismj = False
-                event.channel.send("[MJ] 服务已暂停", event.message)
+                event.channel.send(Reply(ReplyType.TEXT, "[MJ] 服务已暂停"), event.message)
                 event.bypass()
             elif cmd == "mj_enable":
                 self.ismj = True
-                event.channel.send("[MJ] 服务已启用", event.message)
+                event.channel.send(Reply(ReplyType.TEXT, "[MJ] 服务已启用"), event.message)
                 event.bypass()
             elif cmd == "mj_g_admin_list" and not self.isgroup:
                 adminUser = self.roll["mj_admin_users"]
                 t = "\n"
                 nameList = t.join(f'{index+1}. {data["user_nickname"]}' for index, data in enumerate(adminUser))
-                event.channel.send(f"[MJ] 管理员用户\n{nameList}", event.message)
+                event.channel.send(Reply(ReplyType.TEXT, f"[MJ] 管理员用户\n{nameList}"), event.message)
                 event.bypass()
             elif cmd == "mj_c_admin_list" and not self.isgroup:
                 self.roll["mj_admin_users"] = []
                 write_pickle(self.roll_path, self.roll)
-                event.channel.send("[MJ] 管理员用户已清空", event.message)
+                event.channel.send(Reply(ReplyType.TEXT, "[MJ] 管理员用户已清空"), event.message)
                 event.bypass()
             elif cmd == "mj_s_admin_list" and not self.isgroup:
                 user_name = args[0] if args and args[0] else ""
                 adminUsers = self.roll["mj_admin_users"]
                 buser = self.roll["mj_busers"]
                 if not args or len(args) < 1:
-                    event.channel.send("[MJ] 请输入需要设置的管理员名称或ID", event.message)
+                    event.channel.send(Reply(ReplyType.TEXT, "[MJ] 请输入需要设置的管理员名称或ID"), event.message)
                     event.bypass()
                 index = -1
                 for i, user in enumerate(adminUsers):
@@ -881,14 +905,14 @@ class Midjourney(Plugin):
                         index = i
                         break
                 if index >= 0:
-                    event.channel.send(f"[MJ] 管理员[{adminUsers[index]['user_nickname']}]已在列表中", event.message)
+                    event.channel.send(Reply(ReplyType.TEXT, f"[MJ] 管理员[{adminUsers[index]['user_nickname']}]已在列表中"), event.message)
                     event.bypass()
                 for i, user in enumerate(buser):
                     if user == user_name:
                         index = i
                         break
                 if index >= 0:
-                    event.channel.send(f"[MJ] 用户[{user_name}]已在黑名单中，如需添加请先进行移除", event.message)
+                    event.channel.send(Reply(ReplyType.TEXT, f"[MJ] 用户[{user_name}]已在黑名单中，如需添加请先进行移除"), event.message)
                     event.bypass()
                 userInfo = {
                     "user_id": user_name,
@@ -898,25 +922,25 @@ class Midjourney(Plugin):
                 userInfo = search_friends(user_name)
                 # 判断user_name是否在列表中
                 if not userInfo or not userInfo["user_id"]:
-                    event.channel.send(f"[MJ] 用户[{user_name}]不存在通讯录中", event.message)
+                    event.channel.send(Reply(ReplyType.TEXT, f"[MJ] 用户[{user_name}]不存在通讯录中"), event.message)
                     event.bypass()
                 adminUsers.append(userInfo)
                 self.roll["mj_admin_users"] = adminUsers
                 # 写入用户列表
                 write_pickle(self.roll_path, self.roll)
-                event.channel.send(f"[MJ] 管理员[{userInfo['user_nickname']}]已添加到列表中", event.message)
+                event.channel.send(Reply(ReplyType.TEXT, f"[MJ] 管理员[{userInfo['user_nickname']}]已添加到列表中"), event.message)
                 event.bypass()
             elif cmd == "mj_r_admin_list" and not self.isgroup:
                 text = ""
                 adminUsers = self.roll["mj_admin_users"]
                 if len(args) < 1:
-                    event.channel.send("[MJ] 请输入需要移除的管理员名称或ID或序列号", event.message)
+                    event.channel.send(Reply(ReplyType.TEXT, "[MJ] 请输入需要移除的管理员名称或ID或序列号"), event.message)
                     event.bypass()
                 if args and args[0]:
                     if args[0].isdigit():
                         index = int(args[0]) - 1
                         if index < 0 or index >= len(adminUsers):
-                            event.channel.send(f"[MJ] 序列号[{args[0]}]不存在", event.message)
+                            event.channel.send(Reply(ReplyType.TEXT, f"[MJ] 序列号[{args[0]}]不存在"), event.message)
                             event.bypass()
                         user_name = adminUsers[index]['user_nickname']
                         del adminUsers[index]
@@ -936,9 +960,9 @@ class Midjourney(Plugin):
                             self.roll["mj_admin_users"] = adminUsers
                             write_pickle(self.roll_path, self.roll)
                         else:
-                            event.channel.send(f"[MJ] 管理员[{user_name}]不在列表中", event.message)
+                            event.channel.send(Reply(ReplyType.TEXT, f"[MJ] 管理员[{user_name}]不在列表中"), event.message)
                             event.bypass()
-                event.channel.send(text, event.message)
+                event.channel.send(Reply(ReplyType.TEXT, text), event.message)
                 event.bypass()
             elif cmd == "mj_g_wgroup" and not self.isgroup:
                 text = ""
@@ -949,45 +973,45 @@ class Midjourney(Plugin):
                     t = "\n"
                     nameList = t.join(f'{index+1}. {group}' for index, group in enumerate(groups))
                     text = f"[MJ] 白名单群组\n{nameList}"
-                event.channel.send(text, event.message)
+                event.channel.send(Reply(ReplyType.TEXT, text), event.message)
                 event.bypass() 
             elif cmd == "mj_c_wgroup":
                 self.roll["mj_groups"] = []
                 write_pickle(self.roll_path, self.roll)
-                event.channel.send("[MJ] 群组白名单已清空", event.message)
+                event.channel.send(Reply(ReplyType.TEXT, "[MJ] 群组白名单已清空"), event.message)
                 event.bypass()
             elif cmd == "mj_s_wgroup":
                 groups = self.roll["mj_groups"]
                 bgroups = self.roll["mj_bgroups"]
                 if not self.isgroup and len(args) < 1:
-                    event.channel.send("[MJ] 请输入需要设置的群组名称", event.message)
+                    event.channel.send(Reply(ReplyType.TEXT, "[MJ] 请输入需要设置的群组名称"), event.message)
                     event.bypass()
                 if self.isgroup:
                     group_name = self.userInfo["group_name"]
                 if args and args[0]:
                     group_name = args[0]
                 if group_name in groups:
-                    event.channel.send(f"[MJ] 群组[{group_name}]已在白名单中", event.message)
+                    event.channel.send(Reply(ReplyType.TEXT, f"[MJ] 群组[{group_name}]已在白名单中"), event.message)
                     event.bypass()
                 if group_name in bgroups:
-                    event.channel.send(f"[MJ] 群组[{group_name}]已在黑名单中，如需添加请先进行移除", event.message)
+                    event.channel.send(Reply(ReplyType.TEXT, f"[MJ] 群组[{group_name}]已在黑名单中，如需添加请先进行移除"), event.message)
                     event.bypass()
 
                 roomid = event.message.room_id
                 chatrooms = self.get_group_name(roomid)
 
                 if len(chatrooms) == 0:
-                    event.channel.send(f"[MJ] 群组[{group_name}]不存在", event.message)
+                    event.channel.send(Reply(ReplyType.TEXT, f"[MJ] 群组[{group_name}]不存在"), event.message)
                     event.bypass()
                 groups.append(group_name)
                 self.roll["mj_groups"] = groups
                 write_pickle(self.roll_path, self.roll)
-                event.channel.send(f"[MJ] 群组[{group_name}]已添加到白名单", event.message)
+                event.channel.send(Reply(ReplyType.TEXT, f"[MJ] 群组[{group_name}]已添加到白名单"), event.message)
                 event.bypass()
             elif cmd == "mj_r_wgroup":
                 groups = self.roll["mj_groups"]
                 if not self.isgroup and len(args) < 1:
-                    event.channel.send("[MJ] 请输入需要移除的群组名称或序列号", event.message)
+                    event.channel.send(Reply(ReplyType.TEXT, "[MJ] 请输入需要移除的群组名称或序列号"), event.message)
                     event.bypass()
                 if self.isgroup:
                     group_name = self.userInfo["group_name"]
@@ -995,7 +1019,7 @@ class Midjourney(Plugin):
                     if args[0].isdigit():
                         index = int(args[0]) - 1
                         if index < 0 or index >= len(groups):
-                            event.channel.send(f"[MJ] 序列号[{args[0]}]不在白名单中", event.message)
+                            event.channel.send(Reply(ReplyType.TEXT, f"[MJ] 序列号[{args[0]}]不在白名单中"), event.message)
                             event.bypass()
                         group_name = groups[index]
                     else:
@@ -1004,10 +1028,10 @@ class Midjourney(Plugin):
                     groups.remove(group_name)
                     self.roll["mj_groups"] = groups
                     write_pickle(self.roll_path, self.roll)
-                    event.channel.send(f"[MJ] 群组[{group_name}]已从白名单中移除", event.message)
+                    event.channel.send(Reply(ReplyType.TEXT, f"[MJ] 群组[{group_name}]已从白名单中移除"), event.message)
                     event.bypass()
                 else:
-                    event.channel.send(f"[MJ] 群组[{group_name}]不在白名单中", event.message)
+                    event.channel.send(Reply(ReplyType.TEXT, f"[MJ] 群组[{group_name}]不在白名单中"), event.message)
                     event.bypass()
             elif cmd == "mj_g_bgroup" and not self.isgroup:
                 text = ""
@@ -1018,46 +1042,46 @@ class Midjourney(Plugin):
                     t = "\n"
                     nameList = t.join(f'{index+1}. {group}' for index, group in enumerate(bgroups))
                     text = f"[MJ] 黑名单群组\n{nameList}"
-                event.channel.send(text, event.message)
+                event.channel.send(Reply(ReplyType.TEXT, text), event.message)
                 event.bypass()
             elif cmd == "mj_c_bgroup":
                 self.roll["mj_bgroups"] = []
                 write_pickle(self.roll_path, self.roll)
-                event.channel.send("[MJ] 已清空黑名单群组", event.message)
+                event.channel.send(Reply(ReplyType.TEXT, "[MJ] 已清空黑名单群组"), event.message)
                 event.bypass()
             elif cmd == "mj_s_bgroup":
                 groups = self.roll["mj_groups"]
                 bgroups = self.roll["mj_bgroups"]
                 if not self.isgroup and len(args) < 1:
-                    event.channel.send("[MJ] 请输入需要设置的群组名称", event.message)
+                    event.channel.send(Reply(ReplyType.TEXT, "[MJ] 请输入需要设置的群组名称"), event.message)
                     event.bypass()
                 if self.isgroup:
                     group_name = self.userInfo["group_name"]
                 if args and args[0]:
                     group_name = args[0]
                 if group_name in groups:
-                    event.channel.send(f"[MJ] 群组[{group_name}]已在白名单中，如需添加请先进行移除", event.message)
+                    event.channel.send(Reply(ReplyType.TEXT, f"[MJ] 群组[{group_name}]已在白名单中，如需添加请先进行移除"), event.message)
                     event.bypass()
                 if group_name in bgroups:
-                    event.channel.send(f"[MJ] 群组[{group_name}]已在黑名单中", event.message)
+                    event.channel.send(Reply(ReplyType.TEXT, f"[MJ] 群组[{group_name}]已在黑名单中"), event.message)
                     event.bypass()
 
                 roomid = event.message.room_id
                 chatrooms = self.get_group_name(roomid)
 
                 if len(chatrooms) == 0:
-                    event.channel.send(f"[MJ] 群组[{group_name}]不存在", event.message)
+                    event.channel.send(Reply(ReplyType.TEXT, f"[MJ] 群组[{group_name}]不存在"), event.message)
                     event.bypass()
 
                 bgroups.append(group_name)
                 self.roll["mj_bgroups"] = bgroups
                 write_pickle(self.roll_path, self.roll)
-                event.channel.send(f"[MJ] 群组[{group_name}]已添加到黑名单", event.message)
+                event.channel.send(Reply(ReplyType.TEXT, f"[MJ] 群组[{group_name}]已添加到黑名单"), event.message)
                 event.bypass()
             elif cmd == "mj_r_bgroup":
                 bgroups = self.roll["mj_bgroups"]
                 if not self.isgroup and len(args) < 1:
-                    event.channel.send("[MJ] 请输入需要移除的群组名称或序列号", event.message)
+                    event.channel.send(Reply(ReplyType.TEXT, "[MJ] 请输入需要移除的群组名称或序列号"), event.message)
                     event.bypass()
                 if self.isgroup:
                     group_name = self.userInfo["group_name"]
@@ -1065,7 +1089,7 @@ class Midjourney(Plugin):
                     if args[0].isdigit():
                         index = int(args[0]) - 1
                         if index < 0 or index >= len(bgroups):
-                            event.channel.send(f"[MJ] 序列号[{args[0]}]不在黑名单中", event.message)
+                            event.channel.send(Reply(ReplyType.TEXT, f"[MJ] 序列号[{args[0]}]不在黑名单中"), event.message)
                             event.bypass()
                         group_name = bgroups[index]
                     else:
@@ -1074,47 +1098,47 @@ class Midjourney(Plugin):
                     bgroups.remove(group_name)
                     self.roll["mj_bgroups"] = bgroups
                     write_pickle(self.roll_path, self.roll)
-                    event.channel.send(f"[MJ] 群组[{group_name}]已从黑名单中移除", event.message)
+                    event.channel.send(Reply(ReplyType.TEXT, f"[MJ] 群组[{group_name}]已从黑名单中移除"), event.message)
                     event.bypass()
                 else:
-                    event.channel.send(f"[MJ] 群组[{group_name}]不在黑名单中", event.message)
+                    event.channel.send(Reply(ReplyType.TEXT, f"[MJ] 群组[{group_name}]不在黑名单中"), event.message)
                     event.bypass()
             elif cmd == "mj_g_buser" and not self.isgroup:
                 busers = self.roll["mj_busers"]
                 if len(busers) == 0:
-                    event.channel.send("[MJ] 黑名单用户：无", event.message)
+                    event.channel.send(Reply(ReplyType.TEXT, "[MJ] 黑名单用户：无"), event.message)
                     event.bypass()
                 else:
                     t = "\n"
                     nameList = t.join(f'{index+1}. {data}' for index, data in enumerate(busers))
-                    event.channel.send(f"[MJ] 黑名单用户\n{nameList}", event.message)
+                    event.channel.send(Reply(ReplyType.TEXT, f"[MJ] 黑名单用户\n{nameList}"), event.message)
                     event.bypass()
             elif cmd == "mj_g_wuser" and not self.isgroup:
                 users = self.roll["mj_users"]
                 if len(users) == 0:
-                    event.channel.send("[MJ] 白名单用户：无", event.message)
+                    event.channel.send(Reply(ReplyType.TEXT, "[MJ] 白名单用户：无"), event.message)
                     event.bypass()
                 else:
                     t = "\n"
                     nameList = t.join(f'{index+1}. {data}' for index, data in enumerate(users))
-                    event.channel.send(f"[MJ] 白名单用户\n{nameList}", event.message)
+                    event.channel.send(Reply(ReplyType.TEXT, f"[MJ] 白名单用户\n{nameList}"), event.message)
                     event.bypass()
             elif cmd == "mj_c_wuser":
                 self.roll["mj_users"] = []
                 write_pickle(self.roll_path, self.roll)
-                event.channel.send("[MJ] 用户白名单已清空", event.message)
+                event.channel.send(Reply(ReplyType.TEXT, "[MJ] 用户白名单已清空"), event.message)
                 event.bypass()
             elif cmd == "mj_c_buser":
                 self.roll["mj_busers"] = []
                 write_pickle(self.roll_path, self.roll)
-                event.channel.send("[MJ] 用户黑名单已清空", event.message)
+                event.channel.send(Reply(ReplyType.TEXT, "[MJ] 用户黑名单已清空"), event.message)
                 event.bypass()
             elif cmd == "mj_s_wuser":
                 user_name = args[0] if args and args[0] else ""
                 users = self.roll["mj_users"]
                 busers = self.roll["mj_busers"]
                 if not args or len(args) < 1:
-                    event.channel.send("[MJ] 请输入需要设置的用户名称或ID", event.message)
+                    event.channel.send(Reply(ReplyType.TEXT, "[MJ] 请输入需要设置的用户名称或ID"), event.message)
                     event.bypass()
                 index = -1
                 for i, user in enumerate(users):
@@ -1122,32 +1146,32 @@ class Midjourney(Plugin):
                         index = i
                         break
                 if index >= 0:
-                    event.channel.send(f"[MJ] 用户[{user_name}]已在白名单中", event.message)
+                    event.channel.send(Reply(ReplyType.TEXT, f"[MJ] 用户[{user_name}]已在白名单中"), event.message)
                     event.bypass()
                 for i, user in enumerate(busers):
                     if user == user_name:
                         index = i
                         break
                 if index >= 0:
-                    event.channel.send(f"[MJ] 用户[{user_name}]已在黑名单中，如需添加请先移除黑名单", event.message)
+                    event.channel.send(Reply(ReplyType.TEXT, f"[MJ] 用户[{user_name}]已在黑名单中，如需添加请先移除黑名单"), event.message)
                     event.bypass()
 
                 userInfo = search_friends(user_name)
                 # 判断user_name是否在列表中
                 if not userInfo or not userInfo["user_id"]:
-                    event.channel.send(f"[MJ] 用户[{user_name}]不存在通讯录中", event.message)
+                    event.channel.send(Reply(ReplyType.TEXT, f"[MJ] 用户[{user_name}]不存在通讯录中"), event.message)
                     event.bypass()
                 users.append(user_name)
                 self.roll["mj_users"] = users
                 write_pickle(self.roll_path, self.roll)
-                event.channel.send(f"[MJ] 用户[{user_name}]已添加到白名单", event.message)
+                event.channel.send(Reply(ReplyType.TEXT, f"[MJ] 用户[{user_name}]已添加到白名单"), event.message)
                 event.bypass()
             elif cmd == "mj_s_buser":
                 user_name = args[0] if args and args[0] else ""
                 users = self.roll["mj_users"]
                 busers = self.roll["mj_busers"]
                 if not args or len(args) < 1:
-                    event.channel.send("[MJ] 请输入需要设置的用户名称或ID", event.message)
+                    event.channel.send(Reply(ReplyType.TEXT, "[MJ] 请输入需要设置的用户名称或ID"), event.message)
                     event.bypass()
                 index = -1
                 for i, user in enumerate(users):
@@ -1155,37 +1179,37 @@ class Midjourney(Plugin):
                         index = i
                         break
                 if index >= 0:
-                    event.channel.send(f"[MJ] 用户[{user_name}]已在白名单中，如需添加请先移除白名单", event.message)
+                    event.channel.send(Reply(ReplyType.TEXT, f"[MJ] 用户[{user_name}]已在白名单中，如需添加请先移除白名单"), event.message)
                     event.bypass()
                 for i, user in enumerate(busers):
                     if user == user_name:
                         index = i
                         break
                 if index >= 0:
-                    event.channel.send(f"[MJ] 用户[{user_name}]已在黑名单中", event.message)
+                    event.channel.send(Reply(ReplyType.TEXT, f"[MJ] 用户[{user_name}]已在黑名单中"), event.message)
                     event.bypass()
 
                 userInfo = search_friends(user_name)
                 # 判断user_name是否在列表中
                 if not userInfo or not userInfo["user_id"]:
-                    event.channel.send(f"[MJ] 用户[{user_name}]不存在通讯录中", event.message)
+                    event.channel.send(Reply(ReplyType.TEXT, f"[MJ] 用户[{user_name}]不存在通讯录中"), event.message)
                     event.bypass()
                 busers.append(user_name)
                 self.roll["mj_busers"] = busers
                 write_pickle(self.roll_path, self.roll)
-                event.channel.send(f"[MJ] 用户[{user_name}]已添加到黑名单", event.message)
+                event.channel.send(Reply(ReplyType.TEXT, f"[MJ] 用户[{user_name}]已添加到黑名单"), event.message)
                 event.bypass()
             elif cmd == "mj_r_wuser":
                 text = ""
                 users = self.roll["mj_users"]
                 if len(args) < 1:
-                    event.channel.send("[MJ] 请输入需要移除的用户名称或ID或序列号", event.message)
+                    event.channel.send(Reply(ReplyType.TEXT, "[MJ] 请输入需要移除的用户名称或ID或序列号"), event.message)
                     event.bypass()
                 if args and args[0]:
                     if args[0].isdigit():
                         index = int(args[0]) - 1
                         if index < 0 or index >= len(users):
-                            event.channel.send(f"[MJ] 序列号[{args[0]}]不存在", event.message)
+                            event.channel.send(Reply(ReplyType.TEXT, f"[MJ] 序列号[{args[0]}]不存在"), event.message)
                             event.bypass()
                         user_name = users[index]
                         del users[index]
@@ -1205,7 +1229,7 @@ class Midjourney(Plugin):
                             self.roll["mj_users"] = users
                             write_pickle(self.roll_path, self.roll)
                         else:
-                            event.channel.send(f"[MJ] 用户[{user_name}]不在白名单中", event.message)
+                            event.channel.send(Reply(ReplyType.TEXT, f"[MJ] 用户[{user_name}]不在白名单中"), event.message)
                             event.bypass()
                 event.channel.send(text, event.message)
                 event.bypass()
@@ -1213,13 +1237,13 @@ class Midjourney(Plugin):
                 text = ""
                 busers = self.roll["mj_busers"]
                 if len(args) < 1:
-                    event.channel.send("[MJ] 请输入需要移除的用户名称或ID或序列号", event.message)
+                    event.channel.send(Reply(ReplyType.TEXT, "[MJ] 请输入需要移除的用户名称或ID或序列号"), event.message)
                     event.bypass()
                 if args and args[0]:
                     if args[0].isdigit():
                         index = int(args[0]) - 1
                         if index < 0 or index >= len(busers):
-                            event.channel.send(f"[MJ] 序列号[{args[0]}]不存在", event.message)
+                            event.channel.send(Reply(ReplyType.TEXT, f"[MJ] 序列号[{args[0]}]不存在"), event.message)
                             event.bypass()
                         user_name = busers[index]
                         del busers[index]
@@ -1239,9 +1263,9 @@ class Midjourney(Plugin):
                             self.roll["mj_busers"] = busers
                             write_pickle(self.roll_path, self.roll)
                         else:
-                            event.channel.send(f"[MJ] 用户[{user_name}]不在黑名单中", event.message)
+                            event.channel.send(Reply(ReplyType.TEXT, f"[MJ] 用户[{user_name}]不在黑名单中"), event.message)
                             event.bypass()
-                event.channel.send(text, event.message)
+                event.channel.send(Reply(ReplyType.TEXT, text), event.message)
                 event.bypass()
             else:
                 return "Bye"
@@ -1424,4 +1448,3 @@ class Midjourney(Plugin):
                 raise logger.error(f"String format is incorrect: {date_obj}")
         else:
             raise logger.error(f"Expected str or datetime, but got {type(date_obj)}")
-    

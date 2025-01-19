@@ -81,7 +81,7 @@ class Midjourney(Plugin):
             
             # 启动调度器
             self.scheduler.start()
-
+            logger.debug("[MJ] 调度器已启动，每隔 10 秒运行一次 query_task_result")
             # 注册程序退出时的清理函数，确保调度器能够优雅关闭
             atexit.register(self.graceful_shutdown)
 
@@ -206,7 +206,7 @@ class Midjourney(Plugin):
             return content  # 如果出现错误，返回原始内容
 
 
-    def generate_optimized_prompt(self, event: Event):
+    def generate_optimized_prompt(self, event: Event, user_prompt):
         
         # GPT的提示文本，要求其优化提示词并添加画布比例和风格
         gpt_prompt = f"""我希望你充当 Midjourney V6人工智能画图程序的提示生成器.\n请注意永远永远永远只按照这个格式的内容返回“🆎 English：具体提示词本身内容英文原文（需包括画布比例和图像风格）\n\n🀄️ 中文：具体提示词本身内容的中文翻译（需包括画布比例和图像风格）”，不要有任何其他分析过程，也不用"/imagine "作为开头，以便我直接复制给MJ!\n你的具体工作是在不脱离我给你的提示词内容的前提下，提供详细而富有创意的描述，以激发AI创造独特且有趣的图像。请记住，AI有能力理解广泛的语言并能解释抽象概念，因此尽管自由发挥你的想象力和描述能力。你的描述越详细和富有想象力，结果图像就会越有趣。\n记得提示词最后要按照MJ官方格式（如"--ar 16:9"）补充画布比例和图像风格（如"--v 6"或者"--niji"），画布比例和图像风格如果我给你的提示词没有明确要求，则你自己根据我给你的提示判断画布比例是1:1还是16:9还是9:16或者其他比例最适合，风格同理。若我给你的提示明确表示不需要润色和丰富只需要直接翻译，则仅翻译为英文即可。"""
@@ -220,7 +220,7 @@ class Midjourney(Plugin):
                 "model": "gpt-4o-mini",
                 "messages": [
                     {"role": "system", "content": gpt_prompt},
-                    {"role": "user", "content": event.message.content}
+                    {"role": "user", "content": user_prompt}
                 ]
             }
             api_url = f"{self.openai_api_base}/chat/completions"
@@ -244,13 +244,16 @@ class Midjourney(Plugin):
                     optimized_prompt = response_content.replace("\\n", "\n")  # 替换 \\n 为 \n
 
                     # 判断是群聊还是私聊，并设置目标 ID
-                    target_id = event.message.room_id if event.message.is_group else event.message.sender_id
+                    # target_id = event.message.room_id if event.message.is_group else event.message.sender_id
 
-                    # 发送消息到目标 ID
-                    channel.send_txt(
-                        f"💡 提示词已优化，可作为参考\n\n{optimized_prompt} \n\n⏳ 任务正在提交，请稍后",
-                        target_id
-                    )
+                    # # 发送消息到目标 ID
+                    # channel.send_txt(
+                    #     f"💡 提示词已优化，可作为参考\n\n{optimized_prompt} \n\n⏳ 任务正在提交，请稍后",
+                    #     target_id
+                    # )
+
+                    reply = Reply(ReplyType.TEXT, f"💡 提示词已优化，可作为参考\n\n{optimized_prompt} \n\n⏳ 任务正在提交，请稍后")
+                    event.channel.send(reply, event.message)
 
                     return optimized_prompt
                 else:
@@ -275,7 +278,7 @@ class Midjourney(Plugin):
 
     def did_receive_message(self, event: Event):
         
-        query = event.message.content.strip()
+        query = event.message.content
         is_group = event.message.is_group
         is_at = event.message.is_at
 
@@ -327,6 +330,7 @@ class Midjourney(Plugin):
 
             # 根据 sender_id 和 sender_name 构造 state
             state = f"u:{sender_id}:{msg.sender_name}"
+            logger.debug(f"[MJ]请求人：{state}")
 
             result = None
 
@@ -599,6 +603,7 @@ class Midjourney(Plugin):
         self.task_id_dict[task_id] = 'NOT_START'
 
     def query_task_result(self):
+        logger.debug("[MJ] 调度器正在运行...")
         channel = WrestChannel()
         task_ids = list(self.task_id_dict.keys())
         if len(task_ids) == 0:
@@ -624,6 +629,13 @@ class Midjourney(Plugin):
                 logger.debug("[MJ] 任务已完成: " + task_id)
                 self.task_id_dict.pop(task_id)
 
+                short_img_link = self.shorten_link(task['imageUrl'])
+                if short_img_link:
+                    # 拼接完整的短链接
+                    short_link = f"https://d.zpika.com{short_img_link}"
+                else:
+                    short_link = task['imageUrl']  # 如果短链接失败，仍然使用长链接
+
                 if action == 'DESCRIBE' or action == 'SHORTEN':
                     prompt = task['properties']['finalPrompt']
                     channel.send_txt((reply_prefix + '✅ 任务已完成\n📨 任务ID: %s\n%s\n\n' + self.get_buttons(
@@ -631,9 +643,10 @@ class Midjourney(Plugin):
                                       task_id, prompt, task_id), context)
                     
                 elif action == 'UPSCALE':
-                    channel.send_txt(('✅ 任务已完成\n📨 任务ID: %s\n✨ %s\n\n' + self.get_buttons(
+                    channel.send_txt(('✅ 任务已完成，图片发送中\n🔗 %s\n📨 任务ID: %s\n✨ %s\n\n' + self.get_buttons(
                                       task) + '\n' + '💡 使用 /up 任务ID 序号执行动作\n🔖 /up %s 1') % (
-                                      task_id, description, task_id), context)
+                                      short_link, task_id, description, task_id), context)
+                    logger.debug(f"[MJ] 正在发送图片: {task['imageUrl']} 到 {context}")
                     channel.send_img(task['imageUrl'], context)
 
                     # 成功生成图像后调用
@@ -641,9 +654,10 @@ class Midjourney(Plugin):
                     write_pickle(self.user_datas_path, self.user_datas)
 
                 else:
-                    channel.send_txt(('✅ 任务已完成\n📨 任务ID: %s\n✨ %s\n\n' + self.get_buttons(
+                    channel.send_txt(('✅ 任务已完成，图片发送中\n🔗 %s\n📨 任务ID: %s\n✨ %s\n\n' + self.get_buttons(
                                       task) + '\n' + '💡 使用 /up 任务ID 序号执行动作\n🔖 /up %s 1') % (
-                                      task_id, description, task_id), context)
+                                      short_link, task_id, description, task_id), context)
+                    logger.debug(f"[MJ] 正在发送图片: {task['imageUrl']} 到 {context}")
                     channel.send_img(task['imageUrl'], context)
 
                     # 成功生成图像后调用更新次数
@@ -737,13 +751,14 @@ class Midjourney(Plugin):
         if any(cmd in info["alias"] for info in COMMANDS.values()):
             cmd = next(c for c, info in COMMANDS.items() if cmd in info["alias"])
             if cmd == "mj_help":
-                event.channel.send(Reply(ReplyType.TEXT, self.help), event.message)
+                event.channel.send(Reply(ReplyType.TEXT, self.help()), event.message)
                 event.bypass()
             elif cmd == "mj_admin_cmd":
                 if not self.userInfo["isadmin"]:
                      event.channel.send(Reply(ReplyType.TEXT, "[MJ] 您没有权限执行该操作，请先进行管理员认证"), event.message)
                      event.bypass()
-                event.channel.send(Reply(ReplyType.TEXT, self.get_help_text(admin=True)), event.message)
+                     return
+                event.channel.send(Reply(ReplyType.TEXT, self.help()), event.message)
                 event.bypass()
             elif cmd == "mj_admin_password":
                 ok, result = self.authenticate(self.userInfo, args)
@@ -758,6 +773,7 @@ class Midjourney(Plugin):
             if not self.userInfo["isadmin"]:
                 event.channel.send(Reply(ReplyType.TEXT, "[MJ] 您没有权限执行该操作，请先进行管理员认证"), event.message)
                 event.bypass()
+                return
             
             # 在 handle_command 函数中添加 mj_g_info 处理逻辑
             if cmd == "mj_g_info":
@@ -1323,7 +1339,7 @@ class Midjourney(Plugin):
         
         context = event.message
         msg = context
-        isgroup = context.get("isgroup", False)
+        isgroup = event.message.is_group
         # 写入用户信息，企业微信没有sender_name，所以使用sender_id代替
         uid = msg.sender_id if not isgroup else msg.sender_id
         uname = (msg.sender_name if msg.sender_name else uid) if not isgroup else msg.sender_name
@@ -1448,3 +1464,28 @@ class Midjourney(Plugin):
                 raise logger.error(f"String format is incorrect: {date_obj}")
         else:
             raise logger.error(f"Expected str or datetime, but got {type(date_obj)}")
+        
+    def shorten_link(self, long_url):
+        """
+        调用短链接API将长链接转为短链接
+        """
+        shorten_api_url = "https://d.zpika.com/api"  # 你的短链接API URL
+        payload = {"url": long_url}
+
+        try:
+            # 发送请求到短链接API
+            response = requests.post(shorten_api_url, json=payload)
+            if response.status_code == 200:
+                result = response.json()
+                # 检查 status 是否为 200，获取短链接路径
+                if result.get("status") == 200:
+                    return result.get("key")  # 返回短链接路径部分
+                else:
+                    logger.info(f"Failed to shorten the URL, status code: {result.get('status')}")
+                    return None
+            else:
+                logger.info(f"Failed to shorten the URL: {response.text}")
+                return None
+        except Exception as e:
+            logger.info(f"Error while shortening URL: {str(e)}")
+            return None

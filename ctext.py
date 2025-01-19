@@ -220,7 +220,7 @@ def env_detection(self, event: Event):
         if self.userInfo["iswgroup"]:
             return True
         else:
-            event.channel.send("[MJ] 您今日的使用次数已用完，请明日再来", event.message)
+            event.channel.send(Reply(ReplyType.TEXT, "[MJ] 您今日的使用次数已用完，请明日再来"), event.message)
             event.bypass()
             return False
 

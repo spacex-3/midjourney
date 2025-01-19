@@ -25,7 +25,7 @@ plugins:
     command: [画]
     openai_api_base: https://api.***.ai/v1
     openai_api_key: sk-***
-    api_base: https://api.***.ai/mj
+    proxy_server: https://api.***.ai/mj
     api_key: sk-***
 
 ```

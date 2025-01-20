@@ -8,13 +8,14 @@ import sys
 import atexit
 import glob
 import time
-
+import io
 
 from datetime import datetime, timedelta
 from typing import Tuple
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.jobstores.memory import MemoryJobStore
 from apscheduler.executors.pool import ThreadPoolExecutor
+from PIL import Image
 
 from plugins import register, Plugin, Event, Reply, ReplyType, logger
 from channel.wrest import WrestChannel
@@ -293,14 +294,16 @@ class Midjourney(Plugin):
             query = context.content
             is_group = context.is_group
             is_at = context.is_at
+            # receiver_name = event.message.receiver_name
 
             # 如果是群聊，且消息没有 @机器人，则直接返回
-            if is_group:  # and not is_at:
+            if is_group and not is_at:
                 return
 
             # 如果是群聊，移除 @机器人 的内容
-            #if is_group and is_at:
-            #   query = re.sub(r'@[\w]+\s+', '', query, count=1).strip()
+            if is_group and is_at:
+               query = re.sub(r'@[\w]+\s+', '', query, count=1).strip()
+            #    query = re.sub(rf'@{re.escape(receiver_name)}\s+', '', query, count=1).strip()
         
             try:
 
@@ -315,7 +318,7 @@ class Midjourney(Plugin):
                 reply = Reply(ReplyType.TEXT, "")
                 logger.debug(f"[MJ] did_receive_message. content={query}")            
 
-                content = context.content
+                content = query
 
                 if content.startswith(self.trigger_prefix):
                     
@@ -567,17 +570,18 @@ class Midjourney(Plugin):
             if not cmd:
                 return
             self.cmd_dict.pop(context.sender_id)
+
             sender_id = context.room_id if context.is_group else context.sender_id
             # 根据 sender_id 和 sender_name 构造 state
             state = f"u:{sender_id}:{context.sender_name}"
             logger.info(f"[MJ]请求人：{state}")
 
-            #前缀开头匹配才记录用户信息以免太多不相关的用户被记录
-            self.userInfo = self.get_user_info(event)
-            if not isinstance(self.userInfo, dict):
-                logger.debug(f"Expected self.userInfo to be a dictionary, but got {type(self.userInfo)}")
-            logger.debug(f"[MJ] userInfo: {self.userInfo}")
-            self.isgroup = self.userInfo["isgroup"]
+            # #前缀开头匹配才记录用户信息以免太多不相关的用户被记录
+            # self.userInfo = self.get_user_info(event)
+            # if not isinstance(self.userInfo, dict):
+            #     logger.debug(f"Expected self.userInfo to be a dictionary, but got {type(self.userInfo)}")
+            # logger.debug(f"[MJ] userInfo: {self.userInfo}")
+            # self.isgroup = self.userInfo["isgroup"]
     
 
             dat_path = context._raw_msg.get('extra', '')
@@ -585,7 +589,7 @@ class Midjourney(Plugin):
             dat_name_without_ext = os.path.splitext(dat_name)[0]
             directory = r"C:\Users\kayson\Downloads\20250115-wcf-wx\wrest-windows-v0.27.1\storage\chat-images"
             search_pattern = os.path.join(directory, f"{dat_name_without_ext}.*")
-            time.sleep(8)
+            time.sleep(10)
             matching_files = glob.glob(search_pattern)
             logger.info(f"找到文件 {matching_files}")
             # 只处理第一个匹配文件
@@ -716,11 +720,42 @@ class Midjourney(Plugin):
                               description, task_id, task['failReason']), context)
 
     def image_file_to_base64(self, file_path):
-        with open(file_path, "rb") as image_file:
-            img_data = image_file.read()
-        img_base64 = base64.b64encode(img_data).decode("utf-8")
-        os.remove(file_path)
-        return "data:image/png;base64," + img_base64
+
+        """
+        压缩图片并将其转换为 Base64，保留源文件，删除压缩后的内存数据。
+
+        :param file_path: 原始图片文件的路径
+        :param max_size: 压缩后的最大尺寸 (宽, 高)
+        :return: 压缩后图片的 Base64 字符串
+        """
+        max_size=(800, 800)        
+        try:
+            # 打开原始图片文件
+            with Image.open(file_path) as img:
+                # 压缩图片到指定尺寸
+                img.thumbnail(max_size)  # 等比缩放图片到 max_size 限制
+                
+                # 将压缩后的图片保存到内存中
+                output = io.BytesIO()
+                img_format = img.format if img.format else "PNG"  # 如果没有格式，默认为 PNG
+                img.save(output, format=img_format)
+                output.seek(0)
+                
+                # 转换内存中的压缩图片为 Base64
+                img_data = output.read()
+                img_base64 = base64.b64encode(img_data).decode("utf-8")
+        except Exception as e:
+            raise RuntimeError(f"Failed to compress and convert image to Base64: {e}")
+
+        # 返回 Base64 字符串
+        return f"data:image/{img_format.lower()};base64," + img_base64
+
+
+        # with open(file_path, "rb") as image_file:
+        #     img_data = image_file.read()
+        # img_base64 = base64.b64encode(img_data).decode("utf-8")
+        # os.remove(file_path)
+        # return "data:image/png;base64," + img_base64
 
     def get_buttons(self, task):
         # 定义 emoji 和 label 的字典

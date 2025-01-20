@@ -6,6 +6,9 @@ import traceback
 import re
 import sys
 import atexit
+import glob
+import time
+
 
 from datetime import datetime, timedelta
 from typing import Tuple
@@ -278,274 +281,322 @@ class Midjourney(Plugin):
 
     def did_receive_message(self, event: Event):
         
-        query = event.message.content
-        is_group = event.message.is_group
-        is_at = event.message.is_at
+        context = event.message
+        msg_type = context.type
+        result = None
 
-        if event.message.type not in [1]:
+        if msg_type not in [1, 3]:
             return
 
-        # 如果是群聊，且消息没有 @机器人，则直接返回
-        if is_group:  # and not is_at:
-            return
+        if msg_type == 1:
 
-        # 如果是群聊，移除 @机器人 的内容
-        #if is_group and is_at:
-        #   query = re.sub(r'@[\w]+\s+', '', query, count=1).strip()
+            query = context.content
+            is_group = context.is_group
+            is_at = context.is_at
+
+            # 如果是群聊，且消息没有 @机器人，则直接返回
+            if is_group:  # and not is_at:
+                return
+
+            # 如果是群聊，移除 @机器人 的内容
+            #if is_group and is_at:
+            #   query = re.sub(r'@[\w]+\s+', '', query, count=1).strip()
         
-        try:
-            if not isinstance(self.user_datas, dict):
-                logger.debug(f"Expected self.user_datas to be a dictionary, but got {type(self.user_datas)}")
-
-            context = event.message
-            content = query
-            msg = event.message
-            # 创建一个回复对象
-            reply = Reply(ReplyType.TEXT, "")
-            logger.debug(f"[MJ] did_receive_message. content={content}")            
-
-            if context.type == 1 and content.startswith(self.trigger_prefix):
-                
-                self.userInfo = self.get_user_info(event)
-                if not isinstance(self.userInfo, dict):
-                    logger.debug(f"Expected self.userInfo to be a dictionary, but got {type(self.userInfo)}")
-                    logger.debug(f"[MJ] userInfo: {self.userInfo}")
-                self.isgroup = self.userInfo["isgroup"]
-                
-                # 拦截非白名单黑名单群组
-                if not self.userInfo["isadmin"] and self.isgroup and not self.userInfo["iswgroup"] and self.userInfo["isbgroup"]:
-                    logger.debug("[MJ] Blocked by group blacklist.")
-                    return
-
-                # 拦截黑名单用户
-                if not self.userInfo["isadmin"] and self.userInfo["isbuser"]:
-                    logger.debug("[MJ] Blocked by user blacklist.")
-                    return
-                
-                else:
-                    return self.handle_command(event)
-
-            # 判断 sender_id 是群聊的 room_id 还是私聊的 sender_id
-            sender_id = msg.room_id if msg.is_group else msg.sender_id
-
-            # 根据 sender_id 和 sender_name 构造 state
-            state = f"u:{sender_id}:{msg.sender_name}"
-            logger.debug(f"[MJ]请求人：{state}")
-
-            result = None
-
             try:
-                if content.startswith("/imagine ") or content.startswith(tuple(self.commands)): #“画”字取代dalle3，所以dalle3设置成“画画”
+
+                # 判断 sender_id 是群聊的 room_id 还是私聊的 sender_id
+                sender_id = context.room_id if context.is_group else context.sender_id
+
+                # 根据 sender_id 和 sender_name 构造 state
+                state = f"u:{sender_id}:{context.sender_name}"
+                logger.debug(f"[MJ]请求人：{state}")
+
+                # 创建一个回复对象
+                reply = Reply(ReplyType.TEXT, "")
+                logger.debug(f"[MJ] did_receive_message. content={query}")            
+
+                content = context.content
+
+                if content.startswith(self.trigger_prefix):
                     
-                    # 判断是否在运行中
-                    if not self.ismj:
-                        reply = Reply(ReplyType.TEXT, "MJ功能已停止，请联系管理员开启。")
-                        event.channel.send(reply, event.message)
-                        event.bypass()  
-                        return                   
-                    #前缀开头匹配才记录用户信息以免太多不相关的用户被记录
                     self.userInfo = self.get_user_info(event)
                     if not isinstance(self.userInfo, dict):
-                        logger.debug(f"Expected self.userInfo to be a dictionary, but got {type(self.userInfo)}")
                         logger.debug(f"[MJ] userInfo: {self.userInfo}")
-                    
                     self.isgroup = self.userInfo["isgroup"]
+                    
+                    # 拦截非白名单黑名单群组
+                    if not self.userInfo["isadmin"] and self.isgroup and not self.userInfo["iswgroup"] and self.userInfo["isbgroup"]:
+                        logger.debug("[MJ] Blocked by group blacklist.")
+                        return
 
-                    #用户资格判断
-                    env = env_detection(self, event)
-                    if not env:
+                    # 拦截黑名单用户
+                    if not self.userInfo["isadmin"] and self.userInfo["isbuser"]:
+                        logger.debug("[MJ] Blocked by user blacklist.")
                         return
                     
-                    reply = Reply(ReplyType.TEXT, "✅ 已收到您的提示词，正在由GPT4润色，请稍后。")
-                    event.channel.send(reply, event.message)
-
-                    # 提取用户输入的提示词部分
-                    user_prompt = content[1:].strip()
-
-                    # 调用GPT润色中英文提示词
-                    optimized_prompt = self.generate_optimized_prompt(event, user_prompt)
-                    logger.debug(f"[{optimized_prompt}")
-
-                    # 提取纯英文部分    
-                    match = re.search(r"🆎 English：(.*?)🀄️", optimized_prompt, re.DOTALL) 
-                    if match:
-                        english_prompt = match.group(1).replace("\n", " ")  # 去掉换行符
-                        logger.debug(f"[已找到英文提示词：{english_prompt}")
                     else:
-                        english_prompt = optimized_prompt
-                        logger.debug(f"[没有英文提示词，直接发送完整提示词：{english_prompt}")
+                        return self.handle_command(event)
 
-                    # 将优化后的提示词传递给handle_imagine处理
-                    result = self.handle_imagine(english_prompt, state)
+                try:
+                    if content.startswith(tuple(self.commands)) or content.startswith("/imagine ") : #“画”字取代dalle3，所以dalle3设置成“画画”
+                        
+                        # 判断是否在运行中
+                        if not self.ismj:
+                            reply = Reply(ReplyType.TEXT, "MJ功能已停止，请联系管理员开启。")
+                            event.channel.send(reply, event.message)
+                            event.bypass()  
+                            return                   
+                        #前缀开头匹配才记录用户信息以免太多不相关的用户被记录
+                        self.userInfo = self.get_user_info(event)
+                        if not isinstance(self.userInfo, dict):
+                            logger.debug(f"Expected self.userInfo to be a dictionary, but got {type(self.userInfo)}")
+                            logger.debug(f"[MJ] userInfo: {self.userInfo}")
+                        
+                        self.isgroup = self.userInfo["isgroup"]
 
-                elif content.startswith("/up "):
-
-                    # 判断是否在运行中
-                    if not self.ismj:
-                        reply = Reply(ReplyType.TEXT, "MJ功能已停止，请联系管理员开启。")
+                        #用户资格判断
+                        env = env_detection(self, event)
+                        if not env:
+                            return
+                        
+                        reply = Reply(ReplyType.TEXT, "✅ 已收到您的提示词，正在由GPT4润色，请稍后。")
                         event.channel.send(reply, event.message)
-                        event.bypass()  
-                        return                          
-                    #前缀开头匹配才记录用户信息以免太多不相关的用户被记录
-                    self.userInfo = self.get_user_info(event)
-                    if not isinstance(self.userInfo, dict):
-                        logger.debug(f"Expected self.userInfo to be a dictionary, but got {type(self.userInfo)}")
-                    logger.debug(f"[MJ] userInfo: {self.userInfo}")
-                    self.isgroup = self.userInfo["isgroup"]
 
-                    #用户资格判断
-                    env = env_detection(self, event.message)
-                    if not env:
-                        return                    
-                    
-                    arr = content[4:].split()
-                    try:
-                        task_id = arr[0]
-                        index = int(arr[1])
-                    except Exception as e:
-                        reply = Reply(ReplyType.TEXT, "❌ 您的任务提交失败\nℹ️ 参数错误")
+                        # 提取用户输入的提示词部分
+                        user_prompt = content[1:].strip()
+
+                        # 调用GPT润色中英文提示词
+                        optimized_prompt = self.generate_optimized_prompt(event, user_prompt)
+                        logger.debug(f"[{optimized_prompt}")
+
+                        # 提取纯英文部分    
+                        match = re.search(r"🆎 English：(.*?)🀄️", optimized_prompt, re.DOTALL) 
+                        if match:
+                            english_prompt = match.group(1).replace("\n", " ")  # 去掉换行符
+                            logger.debug(f"[已找到英文提示词：{english_prompt}")
+                        else:
+                            english_prompt = optimized_prompt
+                            logger.debug(f"[没有英文提示词，直接发送完整提示词：{english_prompt}")
+
+                        # 将优化后的提示词传递给handle_imagine处理
+                        result = self.handle_imagine(english_prompt, state)
+
+                    elif content.startswith("/up "):
+
+                        # 判断是否在运行中
+                        if not self.ismj:
+                            reply = Reply(ReplyType.TEXT, "MJ功能已停止，请联系管理员开启。")
+                            event.channel.send(reply, event.message)
+                            event.bypass()  
+                            return                          
+                        #前缀开头匹配才记录用户信息以免太多不相关的用户被记录
+                        self.userInfo = self.get_user_info(event)
+                        if not isinstance(self.userInfo, dict):
+                            logger.debug(f"Expected self.userInfo to be a dictionary, but got {type(self.userInfo)}")
+                        logger.debug(f"[MJ] userInfo: {self.userInfo}")
+                        self.isgroup = self.userInfo["isgroup"]
+
+                        #用户资格判断
+                        env = env_detection(self, event.message)
+                        if not env:
+                            return                    
+                        
+                        arr = content[4:].split()
+                        try:
+                            task_id = arr[0]
+                            index = int(arr[1])
+                        except Exception as e:
+                            reply = Reply(ReplyType.TEXT, "❌ 您的任务提交失败\nℹ️ 参数错误")
+                            event.channel.send(reply, event.message)
+                            event.bypass()  
+                            return
+                        # 获取任务
+                        task = self.get_task(task_id)
+                        if task is None:
+                            reply = Reply(ReplyType.TEXT, "❌ 您的任务提交失败\nℹ️ 任务ID不存在")
+                            event.channel.send(reply, event.message)
+                            event.bypass()                          
+                            return
+                        if index > len(task['buttons']):
+                            reply = Reply(ReplyType.TEXT, "❌ 您的任务提交失败\nℹ️ 按钮序号不正确")
+                            event.channel.send(reply, event.message)
+                            event.bypass()                          
+                            return
+                        # 获取按钮
+                        button = task['buttons'][index - 1]
+                        if button['label'] == 'Custom Zoom':
+                            reply = Reply(ReplyType.TEXT, "❌ 您的任务提交失败\nℹ️ 暂不支持自定义变焦")
+                            event.channel.send(reply, event.message)
+                            event.bypass()                          
+                            return
+                        result = self.post_json('/submit/action',
+                                                {'customId': button['customId'], 'taskId': task_id, 'state': state})
+                        if result.get("code") == 21:
+                            result = self.post_json('/submit/modal',
+                                                {'taskId': result.get("result"), 'state': state})
+                    elif content.startswith("/img2img "):
+                        # 判断是否在运行中
+                        if not self.ismj:
+                            reply = Reply(ReplyType.TEXT, "MJ功能已停止，请联系管理员开启。")
+                            event.channel.send(reply, event.message)
+                            event.bypass()                                               
+                            return                          
+                        #前缀开头匹配才记录用户信息以免太多不相关的用户被记录
+                        self.userInfo = self.get_user_info(event)
+                        if not isinstance(self.userInfo, dict):
+                            logger.debug(f"Expected self.userInfo to be a dictionary, but got {type(self.userInfo)}")
+                        logger.debug(f"[MJ] userInfo: {self.userInfo}")
+                        self.isgroup = self.userInfo["isgroup"]
+
+                        #用户资格判断
+                        env = env_detection(self, event)
+                        if not env:
+                            return                    
+                        
+                        self.cmd_dict[context.sender_id] = content
+
+                        reply = Reply(ReplyType.TEXT, "请给我发一张图片作为垫图")
                         event.channel.send(reply, event.message)
-                        event.bypass()  
+                        event.bypass()                  
                         return
-                    # 获取任务
-                    task = self.get_task(task_id)
-                    if task is None:
-                        reply = Reply(ReplyType.TEXT, "❌ 您的任务提交失败\nℹ️ 任务ID不存在")
+                    elif content == "/describe":
+                        # 判断是否在运行中
+                        if not self.ismj:
+                            reply = Reply(ReplyType.TEXT, "MJ功能已停止，请联系管理员开启。")
+                            event.channel.send(reply, event.message)
+                            event.bypass()                                              
+                            return      
+                        #前缀开头匹配才记录用户信息以免太多不相关的用户被记录
+                        self.userInfo = self.get_user_info(event)
+                        if not isinstance(self.userInfo, dict):
+                            logger.debug(f"Expected self.userInfo to be a dictionary, but got {type(self.userInfo)}")
+                        logger.debug(f"[MJ] userInfo: {self.userInfo}")
+                        self.isgroup = self.userInfo["isgroup"]
+
+                        #用户资格判断
+                        env = env_detection(self, event)
+                        if not env:
+                            return        
+
+                        self.cmd_dict[context.sender_id] = content
+                        reply = Reply(ReplyType.TEXT, "请给我发一张图片用于图生文")
                         event.channel.send(reply, event.message)
-                        event.bypass()                          
+                        event.bypass()                      
                         return
-                    if index > len(task['buttons']):
-                        reply = Reply(ReplyType.TEXT, "❌ 您的任务提交失败\nℹ️ 按钮序号不正确")
-                        event.channel.send(reply, event.message)
-                        event.bypass()                          
+                    elif content.startswith("/shorten "):
+                        # 判断是否在运行中
+                        if not self.ismj:
+                            reply = Reply(ReplyType.TEXT, "MJ功能已停止，请联系管理员开启。")
+                            event.channel.send(reply, event.message)
+                            event.bypass()                                               
+                            return      
+                        #前缀开头匹配才记录用户信息以免太多不相关的用户被记录
+                        self.userInfo = self.get_user_info(event)
+                        if not isinstance(self.userInfo, dict):
+                            logger.debug(f"Expected self.userInfo to be a dictionary, but got {type(self.userInfo)}")
+                        logger.debug(f"[MJ] userInfo: {self.userInfo}")
+                        self.isgroup = self.userInfo["isgroup"]
+
+                        #用户资格判断
+                        env = env_detection(self, event)
+                        if not env:
+                            return        
+
+                        result = self.handle_shorten(content[9:], state)
+                    elif content.startswith("/seed "):
+                        # 判断是否在运行中
+                        if not self.ismj:
+                            reply = Reply(ReplyType.TEXT, "MJ功能已停止，请联系管理员开启。")
+                            event.channel.send(reply, event.message)
+                            event.bypass()                                               
+                            return      
+                        #前缀开头匹配才记录用户信息以免太多不相关的用户被记录
+                        self.userInfo = self.get_user_info(event)
+                        if not isinstance(self.userInfo, dict):
+                            logger.debug(f"Expected self.userInfo to be a dictionary, but got {type(self.userInfo)}")
+                        logger.debug(f"[MJ] userInfo: {self.userInfo}")
+                        self.isgroup = self.userInfo["isgroup"]
+                        
+                        #用户资格判断
+                        env = env_detection(self, event)
+                        if not env:
+                            return        
+
+                        task_id = content[6:]
+                        result = self.get_task_image_seed(task_id)
+                        if result.get("code") == 1:
+                            event.channel.send(Reply(ReplyType.TEXT, f'✅ 获取任务图片seed成功\n📨 任务ID: %s\n🔖 seed值: %s' % (
+                                            task_id, result.get("result"))), event.message)
+                        else:
+                            event.channel.send(Reply(ReplyType.TEXT, f'❌ 获取任务图片seed失败\n📨 任务ID: %s\nℹ️ %s' % (
+                                            task_id, result.get("description"))), event.message)
+                        event.bypass() 
                         return
-                    # 获取按钮
-                    button = task['buttons'][index - 1]
-                    if button['label'] == 'Custom Zoom':
-                        reply = Reply(ReplyType.TEXT, "❌ 您的任务提交失败\nℹ️ 暂不支持自定义变焦")
-                        event.channel.send(reply, event.message)
-                        event.bypass()                          
-                        return
-                    result = self.post_json('/submit/action',
-                                            {'customId': button['customId'], 'taskId': task_id, 'state': state})
-                    if result.get("code") == 21:
-                        result = self.post_json('/submit/modal',
-                                            {'taskId': result.get("result"), 'state': state})
-                elif content.startswith("/img2img "):
-                    # 判断是否在运行中
-                    if not self.ismj:
-                        reply = Reply(ReplyType.TEXT, "MJ功能已停止，请联系管理员开启。")
-                        event.channel.send(reply, event.message)
-                        event.bypass()                                               
-                        return                          
-                    #前缀开头匹配才记录用户信息以免太多不相关的用户被记录
-                    self.userInfo = self.get_user_info(event)
-                    if not isinstance(self.userInfo, dict):
-                        logger.debug(f"Expected self.userInfo to be a dictionary, but got {type(self.userInfo)}")
-                    logger.debug(f"[MJ] userInfo: {self.userInfo}")
-                    self.isgroup = self.userInfo["isgroup"]
-
-                    #用户资格判断
-                    env = env_detection(self, event)
-                    if not env:
-                        return                    
-                    
-                    self.cmd_dict[msg.sender_id] = content
-
-                    reply = Reply(ReplyType.TEXT, "请给我发一张图片作为垫图")
-                    event.channel.send(reply, event.message)
-                    event.bypass()                  
-                    return
-                elif content == "/describe":
-                    # 判断是否在运行中
-                    if not self.ismj:
-                        reply = Reply(ReplyType.TEXT, "MJ功能已停止，请联系管理员开启。")
-                        event.channel.send(reply, event.message)
-                        event.bypass()                                              
-                        return      
-                    #前缀开头匹配才记录用户信息以免太多不相关的用户被记录
-                    self.userInfo = self.get_user_info(event)
-                    if not isinstance(self.userInfo, dict):
-                        logger.debug(f"Expected self.userInfo to be a dictionary, but got {type(self.userInfo)}")
-                    logger.debug(f"[MJ] userInfo: {self.userInfo}")
-                    self.isgroup = self.userInfo["isgroup"]
-
-                    #用户资格判断
-                    env = env_detection(self, event)
-                    if not env:
-                        return        
-
-                    self.cmd_dict[msg.actual_user_id] = content
-                    reply = Reply(ReplyType.TEXT, "请给我发一张图片用于图生文")
-                    event.channel.send(reply, event.message)
-                    event.bypass()                      
-                    return
-                elif content.startswith("/shorten "):
-                    # 判断是否在运行中
-                    if not self.ismj:
-                        reply = Reply(ReplyType.TEXT, "MJ功能已停止，请联系管理员开启。")
-                        event.channel.send(reply, event.message)
-                        event.bypass()                                               
-                        return      
-                    #前缀开头匹配才记录用户信息以免太多不相关的用户被记录
-                    self.userInfo = self.get_user_info(event)
-                    if not isinstance(self.userInfo, dict):
-                        logger.debug(f"Expected self.userInfo to be a dictionary, but got {type(self.userInfo)}")
-                    logger.debug(f"[MJ] userInfo: {self.userInfo}")
-                    self.isgroup = self.userInfo["isgroup"]
-
-                    #用户资格判断
-                    env = env_detection(self, event)
-                    if not env:
-                        return        
-
-                    result = self.handle_shorten(content[9:], state)
-                elif content.startswith("/seed "):
-                    # 判断是否在运行中
-                    if not self.ismj:
-                        reply = Reply(ReplyType.TEXT, "MJ功能已停止，请联系管理员开启。")
-                        event.channel.send(reply, event.message)
-                        event.bypass()                                               
-                        return      
-                    #前缀开头匹配才记录用户信息以免太多不相关的用户被记录
-                    self.userInfo = self.get_user_info(event)
-                    if not isinstance(self.userInfo, dict):
-                        logger.debug(f"Expected self.userInfo to be a dictionary, but got {type(self.userInfo)}")
-                    logger.debug(f"[MJ] userInfo: {self.userInfo}")
-                    self.isgroup = self.userInfo["isgroup"]
-                    
-                    #用户资格判断
-                    env = env_detection(self, event)
-                    if not env:
-                        return        
-
-                    task_id = content[6:]
-                    result = self.get_task_image_seed(task_id)
-                    if result.get("code") == 1:
-                        event.channel.send(Reply(ReplyType.TEXT, f'✅ 获取任务图片seed成功\n📨 任务ID: %s\n🔖 seed值: %s' % (
-                                        task_id, result.get("result"))), event.message)
                     else:
-                        event.channel.send(Reply(ReplyType.TEXT, f'❌ 获取任务图片seed失败\n📨 任务ID: %s\nℹ️ %s' % (
-                                        task_id, result.get("description"))), event.message)
-                    event.bypass() 
-                    return
-                elif context.type == 3:
-                    cmd = self.cmd_dict.get(msg.actual_user_id)
-                    if not cmd:
                         return
-                    msg.prepare()
-                    self.cmd_dict.pop(msg.actual_user_id)
-                    if "/describe" == cmd:
-                        result = self.handle_describe(content, state)
-                    elif cmd.startswith("/img2img "):
-                        result = self.handle_img2img(content, cmd[9:], state)
-                    else:
-                        return
+                except Exception as e:
+                    logger.exception("[MJ] handle failed: %s" % e)
+                    result = {'code': -9, 'description': '服务异常, 请稍后再试'}
+                code = result.get("code")
+                # 获取用户当前剩余次数和有效期
+                uid_group = f"{self.userInfo['user_id']}_{self.userInfo['group_name'] if self.userInfo['isgroup'] else '非群聊'}"
+                remaining_uses = self.user_datas[uid_group]["mj_datas"]["limit"]
+                user_expire_time = self.user_datas[uid_group]["mj_datas"]["expire_time"]
+
+                if code == 1:
+                    task_id = result.get("result")
+                    self.add_task(task_id)
+                    reply = Reply(ReplyType.TEXT, f'✅ 您的任务已提交\n🚀 正在快速处理中，请稍后\n📨 任务ID: {task_id} \n⏳ 本次生成图像后，有效期内还剩余 {remaining_uses - 1} 次\n⏰ 有效期: {user_expire_time}')
+                    event.channel.send(reply, event.message)
+                elif code == 22:
+                    self.add_task(result.get("result"))
+                    reply = Reply(ReplyType.TEXT, f'✅ 您的任务已提交\n⏰ {result.get("description")} \n⏳ 本次生成图像后，有效期内还剩余 {remaining_uses - 1} 次\n⏰ 有效期: {user_expire_time}')
+                    event.channel.send(reply, event.message)
                 else:
-                    return
+                    reply = Reply(ReplyType.TEXT, f'❌ 您的任务提交失败\nℹ️ {result.get("description")} \n⏳本次不扣除次数，有效期内还剩余 {remaining_uses} 次\n⏰ 有效期: {user_expire_time}')
+                    event.channel.send(reply, event.message)
+                event.bypass() 
             except Exception as e:
-                logger.exception("[MJ] handle failed: %s" % e)
-                result = {'code': -9, 'description': '服务异常, 请稍后再试'}
+                logger.warning(f"[MJ] failed to generate pic, error={e}")
+                logger.warning(f"Traceback: {traceback.format_exc()}")
+                reply = Reply(ReplyType.TEXT, "抱歉！创作失败了，请稍后再试🥺")
+                event.channel.send(reply, event.message)
+                event.bypass() 
+        elif context.type == 3:
+            cmd = self.cmd_dict.get(context.sender_id)
+            if not cmd:
+                return
+            self.cmd_dict.pop(context.sender_id)
+            sender_id = context.room_id if context.is_group else context.sender_id
+            # 根据 sender_id 和 sender_name 构造 state
+            state = f"u:{sender_id}:{context.sender_name}"
+            logger.info(f"[MJ]请求人：{state}")
+
+            #前缀开头匹配才记录用户信息以免太多不相关的用户被记录
+            self.userInfo = self.get_user_info(event)
+            if not isinstance(self.userInfo, dict):
+                logger.debug(f"Expected self.userInfo to be a dictionary, but got {type(self.userInfo)}")
+            logger.debug(f"[MJ] userInfo: {self.userInfo}")
+            self.isgroup = self.userInfo["isgroup"]
+    
+
+            dat_path = context._raw_msg.get('extra', '')
+            dat_name = os.path.basename(dat_path)
+            dat_name_without_ext = os.path.splitext(dat_name)[0]
+            directory = r"C:\Users\kayson\Downloads\20250115-wcf-wx\wrest-windows-v0.27.1\storage\chat-images"
+            search_pattern = os.path.join(directory, f"{dat_name_without_ext}.*")
+            time.sleep(8)
+            matching_files = glob.glob(search_pattern)
+            logger.info(f"找到文件 {matching_files}")
+            # 只处理第一个匹配文件
+            file_path = matching_files[0]
+            if "/describe" == cmd:
+                result = self.handle_describe(file_path, state)
+            elif cmd.startswith("/img2img "):
+                result = self.handle_img2img(file_path, cmd[9:], state)
+            else:
+                return
+            
             code = result.get("code")
             # 获取用户当前剩余次数和有效期
             uid_group = f"{self.userInfo['user_id']}_{self.userInfo['group_name'] if self.userInfo['isgroup'] else '非群聊'}"
@@ -555,29 +606,23 @@ class Midjourney(Plugin):
             if code == 1:
                 task_id = result.get("result")
                 self.add_task(task_id)
-                reply = Reply(ReplyType.TEXT, f'✅ 您的任务已提交\n🚀 正在快速处理中，请稍后\n📨 任务ID: {task_id} \n⏳本次生成图像后，有效期内还剩余 {remaining_uses - 1} 次\n⏰有效期: {user_expire_time}')
+                reply = Reply(ReplyType.TEXT, f'✅ 您的任务已提交\n🚀 正在快速处理中，请稍后\n📨 任务ID: {task_id} \n⏳ 本次生成图像后，有效期内还剩余 {remaining_uses - 1} 次\n⏰ 有效期: {user_expire_time}')
                 event.channel.send(reply, event.message)
             elif code == 22:
                 self.add_task(result.get("result"))
-                reply = Reply(ReplyType.TEXT, f'✅ 您的任务已提交\n⏰ {result.get("description")} \n⏳本次生成图像后，有效期内还剩余 {remaining_uses - 1} 次\n⏰有效期: {user_expire_time}')
+                reply = Reply(ReplyType.TEXT, f'✅ 您的任务已提交\n⏰ {result.get("description")} \n⏳ 本次生成图像后，有效期内还剩余 {remaining_uses - 1} 次\n⏰ 有效期: {user_expire_time}')
                 event.channel.send(reply, event.message)
             else:
-                reply = Reply(ReplyType.TEXT, f'❌ 您的任务提交失败\nℹ️ {result.get("description")} \n⏳本次不扣除次数，有效期内还剩余 {remaining_uses} 次\n⏰有效期: {user_expire_time}')
+                reply = Reply(ReplyType.TEXT, f'❌ 您的任务提交失败\nℹ️ {result.get("description")} \n⏳本次不扣除次数，有效期内还剩余 {remaining_uses} 次\n⏰ 有效期: {user_expire_time}')
                 event.channel.send(reply, event.message)
             event.bypass() 
-        except Exception as e:
-            logger.warning(f"[MJ] failed to generate pic, error={e}")
-            logger.warning(f"Traceback: {traceback.format_exc()}")
-            reply = Reply(ReplyType.TEXT, "抱歉！创作失败了，请稍后再试🥺")
-            event.channel.send(reply, event.message)
-            event.bypass() 
-
 
     def handle_imagine(self, prompt, state):
         return self.post_json('/submit/imagine', {'prompt': prompt, 'state': state})
 
     def handle_describe(self, img_data, state):
         base64_str = self.image_file_to_base64(img_data)
+        logger.info(f"base64 (前 100 个字符): {base64_str[:100]}")
         return self.post_json('/submit/describe', {'base64': base64_str, 'state': state})
 
     def handle_shorten(self, prompt, state):
@@ -585,6 +630,7 @@ class Midjourney(Plugin):
 
     def handle_img2img(self, img_data, prompt, state):
         base64_str = self.image_file_to_base64(img_data)
+        logger.info(f"base64 (前 100 个字符): {base64_str[:100]}")
         return self.post_json('/submit/imagine', {'prompt': prompt, 'base64': base64_str, 'state': state})
 
     def post_json(self, api_path, data):

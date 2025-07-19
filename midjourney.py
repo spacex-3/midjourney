@@ -147,7 +147,7 @@ class Midjourney(Plugin):
     def help(self, **kwargs) -> str:
 
         # 生成普通用户的帮助文本
-        help_text = f"这是一个能调用midjourney实现ai绘图的扩展能力。\n使用说明:\n/imagine 根据给出的提示词绘画;\n/img2img 根据提示词+垫图生成图;\n/up 任务ID 序号执行动作;\n/describe 图片转文字;\n/shorten 提示词分析;\n/seed 获取任务图片的seed值;\n\n注意，使用本插件请避免政治、色情、名人等相关提示词，监测到则可能存在停止使用风险。"
+        help_text = f"这是一个能调用midjourney实现ai绘图的扩展能力。\n使用说明:\n/imagine 根据给出的提示词绘画;\n/img2img 根据提示词+垫图生成图;\n/up 任务ID 序号执行动作;\n/describe 图片转文字;\n/edit 编辑内容 (需要先发送此命令再发送图片);\n/shorten 提示词分析;\n/seed 获取任务图片的seed值;\n\n注意，使用本插件请避免政治、色情、名人等相关提示词，监测到则可能存在停止使用风险。"
 
         # 如果是管理员，附加管理员指令的帮助信息
         if kwargs.get("admin", False) is True:
@@ -486,6 +486,30 @@ class Midjourney(Plugin):
                         event.channel.send(reply, event.message)
                         event.bypass()                      
                         return
+                    elif content.startswith("/edit "):
+                        # 判断是否在运行中
+                        if not self.ismj:
+                            reply = Reply(ReplyType.TEXT, "MJ功能已停止，请联系管理员开启。")
+                            event.channel.send(reply, event.message)
+                            event.bypass()                                              
+                            return      
+                        #前缀开头匹配才记录用户信息以免太多不相关的用户被记录
+                        self.userInfo = self.get_user_info(event)
+                        if not isinstance(self.userInfo, dict):
+                            logger.debug(f"Expected self.userInfo to be a dictionary, but got {type(self.userInfo)}")
+                        logger.debug(f"[MJ] userInfo: {self.userInfo}")
+                        self.isgroup = self.userInfo["isgroup"]
+
+                        #用户资格判断
+                        env = env_detection(self, event)
+                        if not env:
+                            return        
+
+                        self.cmd_dict[context.sender_id] = content
+                        reply = Reply(ReplyType.TEXT, "请给我发一张图片用于图像编辑")
+                        event.channel.send(reply, event.message)
+                        event.bypass()                      
+                        return
                     elif content.startswith("/shorten "):
                         # 判断是否在运行中
                         if not self.ismj:
@@ -569,7 +593,16 @@ class Midjourney(Plugin):
             cmd = self.cmd_dict.get(context.sender_id)
             if not cmd:
                 return
+            
+            # 严格验证是否为MJ相关命令
+            if not (cmd == "/describe" or cmd.startswith("/edit ") or cmd.startswith("/img2img ")):
+                logger.debug(f"[MJ] 忽略非MJ命令: {cmd}，可能是其他插件的命令")
+                self.cmd_dict.pop(context.sender_id, None)
+                return
+            
             self.cmd_dict.pop(context.sender_id)
+            
+            logger.debug(f"[MJ] 处理图片，对应命令: {cmd}")
 
             sender_id = context.room_id if context.is_group else context.sender_id
             # 根据 sender_id 和 sender_name 构造 state
@@ -596,6 +629,8 @@ class Midjourney(Plugin):
             file_path = matching_files[0]
             if "/describe" == cmd:
                 result = self.handle_describe(file_path, state)
+            elif cmd.startswith("/edit "):
+                result = self.handle_edit(file_path, cmd[6:], state)
             elif cmd.startswith("/img2img "):
                 result = self.handle_img2img(file_path, cmd[9:], state)
             else:
@@ -619,7 +654,7 @@ class Midjourney(Plugin):
             else:
                 reply = Reply(ReplyType.TEXT, f'❌ 您的任务提交失败\nℹ️ {result.get("description")} \n⏳本次不扣除次数，有效期内还剩余 {remaining_uses} 次\n⏰ 有效期: {user_expire_time}')
                 event.channel.send(reply, event.message)
-            event.bypass() 
+            event.bypass()  # 阻断其他插件处理此图片消息 
 
     def handle_imagine(self, prompt, state):
         return self.post_json('/submit/imagine', {'prompt': prompt, 'state': state})
@@ -628,6 +663,23 @@ class Midjourney(Plugin):
         base64_str = self.image_file_to_base64(img_data)
         logger.info(f"base64 (前 100 个字符): {base64_str[:100]}")
         return self.post_json('/submit/describe', {'base64': base64_str, 'state': state})
+
+    def handle_edit(self, img_data, prompt, state):
+        # 根据API文档，编辑接口需要 image 参数而不是 base64
+        if img_data.startswith("data:image/"):
+            # 如果是base64格式，提取纯base64部分
+            image_data = img_data
+        else:
+            # 如果是文件路径，转换为base64
+            image_data = self.image_file_to_base64(img_data)
+        
+        logger.info(f"[MJ] 编辑请求参数 - prompt: {prompt}")
+        logger.info(f"[MJ] 编辑请求参数 - image (前100字符): {image_data[:100]}")
+        
+        # 使用 image 参数而不是 base64，根据API文档调整
+        result = self.post_json('/submit/edits', {'prompt': prompt, 'image': image_data, 'state': state})
+        logger.info(f"[MJ] 编辑API返回结果: {result}")
+        return result
 
     def handle_shorten(self, prompt, state):
         return self.post_json('/submit/shorten', {'prompt': prompt, 'state': state})
@@ -666,6 +718,9 @@ class Midjourney(Plugin):
             status = task['status']
             action = task['action']
             state_array = task['state'].split(':', 2)
+            
+            logger.info(f"[MJ] 处理任务 {task_id}, 状态: {status}, 动作: {action}")
+            logger.info(f"[MJ] 任务完整数据: {task}")
 
             # Check length of state_array
             if len(state_array) >= 3:
@@ -676,7 +731,7 @@ class Midjourney(Plugin):
                 continue  # Skip this task or handle the error appropriately
 
             if status == 'SUCCESS':
-                logger.debug("[MJ] 任务已完成: " + task_id)
+                logger.info("[MJ] 任务已完成: " + task_id)
                 self.task_id_dict.pop(task_id)
 
                 short_img_link = self.shorten_link(task['imageUrl'])
@@ -686,6 +741,9 @@ class Midjourney(Plugin):
                 else:
                     short_link = task['imageUrl']  # 如果短链接失败，仍然使用长链接
 
+                # 检查任务类型并记录
+                logger.info(f"[MJ] 任务类型判断 - action: {action}, description: {description}")
+                
                 if action == 'DESCRIBE' or action == 'SHORTEN':
                     prompt = task['properties']['finalPrompt']
                     channel.send_txt((reply_prefix + '✅ 任务已完成\n📨 任务ID: %s\n%s\n\n' + self.get_buttons(
@@ -696,18 +754,42 @@ class Midjourney(Plugin):
                     channel.send_txt(('✅ 任务已完成，图片发送中\n🔗 %s\n📨 任务ID: %s\n✨ %s\n\n' + self.get_buttons(
                                       task) + '\n' + '💡 使用 /up 任务ID 序号执行动作\n🔖 /up %s 1') % (
                                       short_link, task_id, description, task_id), context)
-                    logger.debug(f"[MJ] 正在发送图片: {task['imageUrl']} 到 {context}")
+                    logger.info(f"[MJ] 正在发送图片: {task['imageUrl']} 到 {context}")
                     channel.send_img(task['imageUrl'], context)
 
                     # 成功生成图像后调用
                     self.update_limit(self.userInfo['user_id'], self.userInfo['group_name'], 1)
                     write_pickle(self.user_datas_path, self.user_datas)
 
+                elif action == 'EDIT':
+                    logger.info(f"[MJ] 识别为编辑任务")
+                    # 编辑任务完成，检查是否有按钮
+                    buttons_str = self.get_buttons(task)
+                    if buttons_str:
+                        channel.send_txt(('✅ 图像编辑任务已完成，图片发送中\n🔗 %s\n📨 任务ID: %s\n✨ %s\n\n%s\n💡 使用 /up 任务ID 序号执行动作\n🔖 /up %s 1') % (
+                                          short_link, task_id, description, buttons_str, task_id), context)
+                    else:
+                        channel.send_txt(('✅ 图像编辑任务已完成，图片发送中\n🔗 %s\n📨 任务ID: %s\n✨ %s') % (
+                                          short_link, task_id, description), context)
+                    logger.info(f"[MJ] 正在发送编辑后的图片: {task['imageUrl']} 到 {context}")
+                    channel.send_img(task['imageUrl'], context)
+
+                    # 成功生成图像后调用更新次数
+                    self.update_limit(self.userInfo['user_id'], self.userInfo['group_name'], 1)
+                    write_pickle(self.user_datas_path, self.user_datas)
+
                 else:
-                    channel.send_txt(('✅ 任务已完成，图片发送中\n🔗 %s\n📨 任务ID: %s\n✨ %s\n\n' + self.get_buttons(
-                                      task) + '\n' + '💡 使用 /up 任务ID 序号执行动作\n🔖 /up %s 1') % (
-                                      short_link, task_id, description, task_id), context)
-                    logger.debug(f"[MJ] 正在发送图片: {task['imageUrl']} 到 {context}")
+                    logger.info(f"[MJ] 进入默认处理分支，action: {action}")
+                    # 处理其他类型的任务（包括可能的编辑任务）
+                    buttons_str = self.get_buttons(task)
+                    if buttons_str:
+                        channel.send_txt(('✅ 任务已完成，图片发送中\n🔗 %s\n📨 任务ID: %s\n✨ %s\n\n%s\n💡 使用 /up 任务ID 序号执行动作\n🔖 /up %s 1') % (
+                                          short_link, task_id, description, buttons_str, task_id), context)
+                    else:
+                        logger.info(f"[MJ] 没有找到按钮，发送简化消息")
+                        channel.send_txt(('✅ 任务已完成，图片发送中\n🔗 %s\n📨 任务ID: %s\n✨ %s') % (
+                                          short_link, task_id, description), context)
+                    logger.info(f"[MJ] 正在发送图片: {task['imageUrl']} 到 {context}")
                     channel.send_img(task['imageUrl'], context)
 
                     # 成功生成图像后调用更新次数
@@ -758,6 +840,21 @@ class Midjourney(Plugin):
         # return "data:image/png;base64," + img_base64
 
     def get_buttons(self, task):
+        # 添加调试信息
+        logger.debug(f"[MJ] 获取按钮信息，任务数据: {task}")
+        
+        # 检查是否有 buttons 字段
+        if 'buttons' not in task:
+            logger.debug(f"[MJ] 任务中没有 buttons 字段")
+            return ""
+        
+        buttons = task['buttons']
+        if not buttons:
+            logger.debug(f"[MJ] buttons 字段为空")
+            return ""
+            
+        logger.debug(f"[MJ] 找到 {len(buttons)} 个按钮")
+        
         # 定义 emoji 和 label 的字典
         emoji_dict = {
             "upscale_1": "🔼",
@@ -801,7 +898,8 @@ class Midjourney(Plugin):
 
         res = ''
         index = 1
-        for button in task['buttons']:
+        for button in buttons:
+            logger.info(f"[MJ] 处理按钮: {button}")
             # 获取原始 emoji 和 label
             emoji = button.get('emoji', '')
             label = button.get('label', '')
@@ -821,6 +919,7 @@ class Midjourney(Plugin):
             res += ' %d- %s\n' % (index, name)
             index += 1
 
+        logger.info(f"[MJ] 生成的按钮字符串: {res}")
         return res
 
     # 指令处理
